@@ -1,14 +1,15 @@
 package com.example.greenribboncalimassignment.common.exception;
 
+import com.example.greenribboncalimassignment.common.response.ResultCode;
 import lombok.Getter;
 
 @Getter
 public class BusinessException extends RuntimeException {
 
-    private final String code;
+    private final ResultCode resultCode;
 
-    public BusinessException(String code, String message) {
-        super(message);
-        this.code = code;
+    public BusinessException(ResultCode resultCode) {
+        super(resultCode.getMessage());
+        this.resultCode = resultCode;
     }
 }
