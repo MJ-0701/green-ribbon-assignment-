@@ -3,6 +3,7 @@ package com.example.greenribboncalimassignment.domain.proxy.entity;
 import com.example.greenribboncalimassignment.domain.user.entity.Users;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.Comment;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -10,6 +11,7 @@ import java.util.List;
 @Entity
 @Getter
 @Table(name = "proxy_requests")
+@Comment("청구 대행 신청 (Aggregate Root)")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
 @Builder
@@ -18,24 +20,30 @@ public class ProxyRequest {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "proxy_id")
+    @Comment("청구 대행 신청 PK")
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
+    @Comment("신청한 유저")
     private Users user;
 
     @Convert(converter = ProxyStatusConverter.class)
     @Column(nullable = false)
+    @Comment("진행 상태 (PENDING, IN_PROGRESS 등)")
     private ProxyStatus status;
 
     @Convert(converter = GuaranteeTypeConverter.class)
     @Column(nullable = false)
+    @Comment("보장 타입 (수수료율 결정)")
     private GuaranteeType guaranteeType;
 
     @Column(nullable = false)
+    @Comment("총 놓친 보험금 (신청 단위 합계)")
     private Long totalMissedAmount;
 
     @Column(nullable = false)
+    @Comment("예상 수수료 (보장 타입에 따라 계산)")
     private Long feeAmount;
 
     @OneToMany(mappedBy = "proxyRequest", cascade = CascadeType.ALL, orphanRemoval = true)
