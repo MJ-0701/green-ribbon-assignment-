@@ -22,4 +22,11 @@ public class Users {
     @Column(nullable = false, length = 50)
     @Comment("사용자 이름")
     private String name;
+
+    // --- 정적 팩토리 메서드 ---
+    public static Users of(String name) {
+        return Users.builder()
+                .name(name)
+                .build();
+    }
 }

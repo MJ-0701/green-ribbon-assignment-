@@ -49,6 +49,19 @@ public class ProxyRequest {
     @OneToMany(mappedBy = "proxyRequest", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ProxyRequestUnit> proxyRequestUnits = new ArrayList<>();
 
+    // --- 정적 팩토리 메서드 ---
+    public static ProxyRequest of(Users user, GuaranteeType guaranteeType) {
+        return ProxyRequest.builder()
+                .user(user)
+                .guaranteeType(guaranteeType)
+                .status(ProxyStatus.PENDING) // 초기 상태 강제
+                .totalMissedAmount(0L)
+                .feeAmount(0L)
+                .build();
+    }
+
+    // --- 비지니스 로직 ---
+
     // 대행 단위 추가 및 금액 재계산
     public void addUnit(ProxyRequestUnit unit) {
         this.proxyRequestUnits.add(unit);

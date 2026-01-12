@@ -23,4 +23,11 @@ public class Hospital {
     @Column(nullable = false, length = 100)
     @Comment("병원 이름")
     private String name;
+
+    // --- 정적 팩토리 메서드 ---
+    public static Hospital of(String name) {
+        return Hospital.builder()
+                .name(name)
+                .build();
+    }
 }

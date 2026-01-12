@@ -38,7 +38,21 @@ public class ProxyRequestUnit {
         return this.userTreatment.getHospital().getId();
     }
 
+    // 연관관계 편의 메서드
     protected void assignProxyRequest(ProxyRequest proxyRequest) {
         this.proxyRequest = proxyRequest;
+    }
+
+    // --- 정적 팩토리 메서드 ---
+
+    /**
+     * 진료 기록(UserTreatment)을 기반으로 청구 대행 단위(ProxyRequestUnit)를 생성합니다.
+     * - 비즈니스 규칙: 놓친 보험금(missedAmount)은 진료 금액(amount)과 동일하게 설정됩니다.
+     */
+    public static ProxyRequestUnit from(UserTreatment userTreatment) {
+        return ProxyRequestUnit.builder()
+                .userTreatment(userTreatment)
+                .missedAmount(userTreatment.getAmount())
+                .build();
     }
 }
