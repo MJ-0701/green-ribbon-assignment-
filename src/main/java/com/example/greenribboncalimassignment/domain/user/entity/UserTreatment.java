@@ -43,4 +43,15 @@ public class UserTreatment {
     @Column(nullable = false)
     @Comment("진료비 금액")
     private Long amount;
+
+    // --- 정적 팩토리 메서드 ---
+    public static UserTreatment of(Users user, Hospital hospital, LocalDate treatmentDate, Long amount) {
+        return UserTreatment.builder()
+                .user(user)
+                .hospital(hospital)
+                .hospitalName(hospital.getName())
+                .treatmentDate(treatmentDate)
+                .amount(amount)
+                .build();
+    }
 }
