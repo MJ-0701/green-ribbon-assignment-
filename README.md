@@ -61,3 +61,33 @@ PENDING("대행 신청 완료") {
         return List.of(IN_PROGRESS, CANCELLED, DISCLAIMER);
     }
 }
+```
+
+### 3.2 DB 매핑과 타입 안전성 (AttributeConverter)
+- **요구사항**: DB에는 운영 및 데이터 확인의 용이성을 위해 한글 Description("대행 신청 완료", "일반 선불")이 저장되어야 합니다.
+- **구현**: `AttributeConverter`를 활용하여 Java 코드에서는 **Enum의 타입 안전성**을 누리고, DB에는 **한글 설명**이 저장되도록 구현했습니다.
+
+---
+
+## 4. 시스템 아키텍처 및 공통 모듈 설계 (Common & Core)
+
+안정적인 서비스 운영과 프론트엔드와의 원활한 협업을 위해 공통 관심사(Cross-cutting Concerns)를 모듈화했습니다.
+
+### 4.1 표준 API 응답 전략 (Standardized API Response)
+HTTP Status Code에 의존하는 것을 넘어, 비즈니스 로직의 성공/실패 여부를 명확히 전달하기 위해 **Soft 200 전략**을 채택했습니다.
+- **구조**: 모든 응답은 `ApiResponse<T>` 래퍼 객체로 반환됩니다.
+- **Status & Code 분리**:
+  - `status` (int): `200`, `9999` 등 구체적인 상태 코드 (프론트엔드 분기 처리용)
+  - `code` (String): `SUCCESS`, `SERVER_ERROR` 등 가독성 있는 식별 코드
+- **이점**: 클라이언트는 항상 JSON 포맷을 보장받으며, `status` 필드만으로 에러 핸들링 로직을 일원화할 수 있습니다.
+
+### 4.2 전역 예외 처리 (Global Exception Handling)
+`@RestControllerAdvice`를 활용하여 예외를 중앙 집중적으로 관리합니다.
+- **계층화된 예외 전략**:
+  - **Service Layer**: 트랜잭션 롤백을 위해 `RuntimeException` 기반의 커스텀 예외(`BusinessException`)를 발생시킵니다.
+  - **Web Layer**: `Exception.class`까지 포괄적으로 잡아내어, 예상치 못한 Checked Exception이 발생하더라도 클라이언트에게는 항상 약속된 JSON 포맷을 반환합니다.
+
+### 4.3 관측 가능성 확보 (Observability & Logging)
+운영 환경에서의 디버깅 효율성을 높이기 위해 로깅 시스템을 강화했습니다.
+- **MDC (Mapped Diagnostic Context)**: 필터 단에서 요청마다 고유한 `UUID(Trace ID)`를 발급하여, 멀티 스레드 환경에서도 로그의 흐름을 완벽하게 추적합니다.
+- **Content Caching**: `ContentCachingRequestWrapper`를 사용하여 `InputStream` 소실 없이 Request/Response Body 전체를 로깅하여 이슈 발생 시 원인을 즉각 파악할 수 있도록 했습니다.
