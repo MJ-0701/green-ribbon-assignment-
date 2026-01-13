@@ -210,4 +210,39 @@ class ProxyRequestRestControllerTest {
                 .andExpect(status().isBadRequest()) // GlobalExceptionHandler 설정에 따름 (보통 400)
                 .andExpect(jsonPath("$.code").value(ResultCode.INVALID_STATUS_TRANSITION.getCode()));
     }
+
+    @Test
+    @DisplayName("3.4 취소 API 성공: 정상 요청 시 200 OK를 반환한다.")
+    void delete_proxy_request_success() throws Exception {
+        // given
+        Long proxyRequestId = 1L;
+
+        // when & then
+        mockMvc.perform(delete("/api/proxy-requests/{proxyRequestId}", proxyRequestId)
+                        .contentType(MediaType.APPLICATION_JSON)) // .with(csrf()) 제거됨
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"));
+
+        then(proxyRequestService).should().deleteProxyRequest(proxyRequestId);
+    }
+
+    @Test
+    @DisplayName("3.4 취소 API 실패: 취소 불가능한 상태인 경우 400 Bad Request를 반환한다.")
+    void delete_proxy_request_fail() throws Exception {
+        // given
+        Long proxyRequestId = 1L;
+
+        // Mocking: 서비스에서 예외 발생
+        willThrow(new BusinessException(ResultCode.CANCEL_ONLY_AT_PENDING))
+                .given(proxyRequestService)
+                .deleteProxyRequest(proxyRequestId);
+
+        // when & then
+        mockMvc.perform(delete("/api/proxy-requests/{proxyRequestId}", proxyRequestId)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andDo(print())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ResultCode.CANCEL_ONLY_AT_PENDING.getCode()));
+    }
 }

@@ -178,6 +178,19 @@ public class ProxyRequestService {
         );
     }
 
+    /**
+     * 3.4 청구 대행 취소
+     * - Soft Delete 수행
+     */
+    @Transactional
+    public void deleteProxyRequest(Long proxyRequestId) {
+        ProxyRequest proxyRequest = proxyRequestRepository.findById(proxyRequestId)
+                .orElseThrow(() -> new BusinessException(ResultCode.PROXY_REQUEST_NOT_FOUND));
+
+        // 도메인 엔티티의 삭제 로직 호출 (상태 검증 포함)
+        proxyRequest.delete();
+    }
+
 
     // 수정 -> 종결(COMPLETED) 또는 면책(DISCLAIMER)된 병원은 다시 신청 불가능
     private void validateHospitalAvailability(Long userId, List<Long> hospitalIds) {

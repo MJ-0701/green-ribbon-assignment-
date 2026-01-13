@@ -332,4 +332,48 @@ class ProxyRequestServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("resultCode", ResultCode.INVALID_STATUS_TRANSITION);
     }
+
+    @Test
+    @DisplayName("취소 성공: PENDING 상태인 신청서는 Soft Delete(삭제일시 기록) 된다.")
+    void delete_proxy_request_success() {
+        // given
+        Long proxyRequestId = 1L;
+        ProxyRequest proxyRequest = ProxyRequest.builder()
+                .user(Users.of("유저"))
+                .guaranteeType(GuaranteeType.NORMAL_POSTPAID)
+                .status(ProxyStatus.PENDING) // PENDING 상태
+                .totalMissedAmount(0L).feeAmount(0L)
+                .build();
+
+        given(proxyRequestRepository.findById(proxyRequestId)).willReturn(Optional.of(proxyRequest));
+
+        // when
+        proxyRequestService.deleteProxyRequest(proxyRequestId);
+
+        // then
+        // deletedAt이 기록되었는지 확인
+        assertThat(proxyRequest.getStatus()).isEqualTo(ProxyStatus.CANCELLED);
+    }
+
+    @Test
+    @DisplayName("취소 실패: PENDING 상태가 아닌 신청서(예: IN_PROGRESS)는 취소할 수 없다.")
+    void delete_proxy_request_fail_invalid_status() {
+        // given
+        Long proxyRequestId = 1L;
+        ProxyRequest proxyRequest = ProxyRequest.builder()
+                .user(Users.of("유저"))
+                .status(ProxyStatus.IN_PROGRESS) // [중요] 이미 진행 중
+                .totalMissedAmount(0L).feeAmount(0L)
+                .build();
+
+        given(proxyRequestRepository.findById(proxyRequestId)).willReturn(Optional.of(proxyRequest));
+
+        // when & then
+        assertThatThrownBy(() -> proxyRequestService.deleteProxyRequest(proxyRequestId))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("resultCode", ResultCode.CANCEL_ONLY_AT_PENDING);
+
+        // 삭제 필드는 여전히 null이어야 함
+        assertThat(proxyRequest.getDeletedAt()).isNull();
+    }
 }

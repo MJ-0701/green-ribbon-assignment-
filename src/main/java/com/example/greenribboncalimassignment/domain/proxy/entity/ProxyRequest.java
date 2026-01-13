@@ -8,6 +8,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.Comment;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -95,5 +96,18 @@ public class ProxyRequest extends BaseTimeEntity {
         } else {
             this.status = requestStatus;
         }
+    }
+
+    /**
+     * 3.4 청구 대행 취소 (Soft Delete)
+     * - PENDING 상태일 때만 취소 가능
+     * - ProxyStatus -> CANCELLED 업데이트
+     */
+    public void delete() {
+        if (this.status != ProxyStatus.PENDING) {
+            // PENDING이 아니면 취소 불가능
+            throw new BusinessException(ResultCode.CANCEL_ONLY_AT_PENDING);
+        }
+        this.status = ProxyStatus.CANCELLED;
     }
 }

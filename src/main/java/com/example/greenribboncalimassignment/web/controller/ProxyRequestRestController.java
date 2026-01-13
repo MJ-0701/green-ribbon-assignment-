@@ -64,5 +64,15 @@ public class ProxyRequestRestController {
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
+    @Operation(summary = "3.4 청구 대행 취소", description = "신청 상태(PENDING)인 청구 대행 건을 취소(삭제)합니다.")
+    @DeleteMapping("/{proxyRequestId}")
+    public ResponseEntity<ApiResponse<Void>> deleteProxyRequest(
+            @Parameter(description = "청구 대행 ID", required = true)
+            @PathVariable Long proxyRequestId
+    ) {
+        proxyRequestService.deleteProxyRequest(proxyRequestId);
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
 
 }
