@@ -2,14 +2,30 @@ package com.example.greenribboncalimassignment.service.proxy;
 
 import com.example.greenribboncalimassignment.common.exception.BusinessException;
 import com.example.greenribboncalimassignment.common.response.ResultCode;
+import com.example.greenribboncalimassignment.domain.hospital.entity.Hospital;
+import com.example.greenribboncalimassignment.domain.proxy.entity.ProxyRequest;
+import com.example.greenribboncalimassignment.domain.proxy.entity.ProxyRequestHistory;
+import com.example.greenribboncalimassignment.domain.proxy.entity.ProxyRequestUnit;
+import com.example.greenribboncalimassignment.domain.proxy.entity.ProxyStatus;
+import com.example.greenribboncalimassignment.domain.proxy.repository.ProxyRequestHistoryRepository;
+import com.example.greenribboncalimassignment.domain.proxy.repository.ProxyRequestRepository;
+import com.example.greenribboncalimassignment.domain.proxy.repository.ProxyRequestUnitRepository;
+import com.example.greenribboncalimassignment.domain.user.entity.UserTreatment;
+import com.example.greenribboncalimassignment.domain.user.entity.Users;
 import com.example.greenribboncalimassignment.domain.user.repository.UserTreatmentRepository;
 import com.example.greenribboncalimassignment.domain.user.repository.UsersRepository;
+import com.example.greenribboncalimassignment.web.dto.request.ProxyCreateRequest;
+import com.example.greenribboncalimassignment.web.dto.response.ProxyCreateResponse;
 import com.example.greenribboncalimassignment.web.dto.response.ProxyRequestUnitResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -18,6 +34,9 @@ public class ProxyRequestService {
 
     private final UsersRepository usersRepository;
     private final UserTreatmentRepository userTreatmentRepository;
+    private final ProxyRequestRepository proxyRequestRepository;
+    private final ProxyRequestUnitRepository proxyRequestUnitRepository;
+    private final ProxyRequestHistoryRepository proxyRequestHistoryRepository;
 
     /**
      * 3.5 유저 진료 기록 조회 (신청 가능 목록)
@@ -32,5 +51,88 @@ public class ProxyRequestService {
 
         // 2. 조회 (필터링 로직은 서브쿼리로 처리 됩니다.)
         return userTreatmentRepository.findAvailableTreatments(userId, pageable);
+    }
+
+    /**
+     * 3.1 청구 대행 신청
+     * [Process]
+     * 1. 유저 유효성 및 신청 정책 검증 (1인 1진행중 원칙)
+     * 2. 병원 ID 목록 기반 진료 기록 조회 및 종결 건 포함 여부 검증
+     * 3. 병원별 금액 합산 및 ProxyRequest/Unit 생성 (병원당 1 Unit)
+     * 4. 신청서 저장 및 초기 상태(PENDING) 이력 저장
+     */
+    @Transactional
+    public ProxyCreateResponse createProxyRequest(ProxyCreateRequest request) {
+        // 1. 유저 조회
+        Users user = usersRepository.findById(request.userId())
+                .orElseThrow(() -> new BusinessException(ResultCode.USER_NOT_FOUND));
+
+        // 2. 정책 검증: 동일 유저의 진행 중인 신청 건 존재 시 차단
+        if (proxyRequestRepository.existsOngoingRequest(request.userId())) {
+            throw new BusinessException(ResultCode.DUPLICATE_REQUEST_NOT_ALLOWED);
+        }
+
+        // 3. 신청 대상 진료 기록 조회 (병원 ID 목록 기반)
+        List<UserTreatment> treatments = userTreatmentRepository.findAllByUserIdAndHospital_IdIn(request.userId(), request.hospitalIds());
+        if (treatments.isEmpty()) {
+            throw new BusinessException(ResultCode.TREATMENT_NOT_FOUND);
+        }
+
+        // 4. 데이터 검증: 이미 종결된 진료 기록 포함 여부 확인
+        validateTreatmentsAvailability(treatments);
+
+        // 5. ProxyRequest (Aggregate Root) 생성
+        ProxyRequest proxyRequest = ProxyRequest.of(user, request.guaranteeType());
+
+        // 6. 병원별 그룹화 및 병원당 1개의 Unit으로 합산 생성
+        Map<Long, List<UserTreatment>> groupedByHospital = treatments.stream()
+                .collect(Collectors.groupingBy(t -> t.getHospital().getId()));
+
+        groupedByHospital.forEach((hospitalId, hospitalTreatments) -> {
+            long totalHospitalAmount = hospitalTreatments.stream()
+                    .mapToLong(UserTreatment::getAmount)
+                    .sum();
+
+            // 도메인 활용: 병원별 합산 금액을 가진 Unit 생성
+            ProxyRequestUnit unit = ProxyRequestUnit.builder()
+                    .userTreatment(hospitalTreatments.get(0)) // 대표 진료기록
+                    .missedAmount(totalHospitalAmount)
+                    .build();
+
+            proxyRequest.addUnit(unit); // 내부적으로 합계/수수료 재계산 수행
+        });
+
+        // 7. DB 저장
+        ProxyRequest savedRequest = proxyRequestRepository.save(proxyRequest);
+
+        // 8. 최초 신청 이력 저장
+        saveHistory(
+                savedRequest,
+                null,
+                ProxyStatus.PENDING,
+                String.format("신규 대행 신청 접수 (병원 %d곳 합산)", groupedByHospital.size())
+        );
+
+        return ProxyCreateResponse.from(savedRequest);
+    }
+
+    private void validateTreatmentsAvailability(List<UserTreatment> treatments) {
+        List<Long> treatmentIds = treatments.stream()
+                .map(UserTreatment::getId)
+                .toList();
+
+        boolean existsProcessed = proxyRequestUnitRepository.existsByUserTreatmentIdInAndProxyRequest_StatusIn(
+                treatmentIds,
+                List.of(ProxyStatus.COMPLETED, ProxyStatus.DISCLAIMER)
+        );
+
+        if (existsProcessed) {
+            throw new BusinessException(ResultCode.ALREADY_PROCESSED_TREATMENT);
+        }
+    }
+
+    private void saveHistory(ProxyRequest request, ProxyStatus prev, ProxyStatus next, String reason) {
+        ProxyRequestHistory history = ProxyRequestHistory.create(request, prev, next, reason);
+        proxyRequestHistoryRepository.save(history);
     }
 }

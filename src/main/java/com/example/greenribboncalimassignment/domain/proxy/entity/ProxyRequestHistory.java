@@ -25,7 +25,7 @@ public class ProxyRequestHistory extends BaseTimeEntity {
     private ProxyRequest proxyRequest;
 
     @Convert(converter = ProxyStatusConverter.class)
-    @Column(nullable = false)
+    @Column(nullable = true)
     @Comment("변경 전 상태")
     private ProxyStatus previousStatus;
 

@@ -50,25 +50,25 @@ class UserTreatmentRepositoryTest {
     }
 
     @Test
-    @DisplayName("신청 가능 목록 조회: 이미 신청된 건은 제외하고, 취소된 건과 미신청 건만 조회된다.")
-    void find_available_treatments_filter_exists() {
+    @DisplayName("신청 가능 목록 조회: 같은 병원의 진료 기록은 하나로 합쳐지고 금액이 합산된다.")
+    void find_available_treatments_group_by_hospital() {
         // given
-        // 1. [미신청] 진료기록 (조회 되어야 함)
-        UserTreatment t1_clean = UserTreatment.of(user, hospital, LocalDate.now(), 10000L);
-        em.persist(t1_clean);
+        // 1. [미신청] A병원 - 10,000원 (조회 대상)
+        UserTreatment t1 = UserTreatment.of(user, hospital, LocalDate.now().minusDays(2), 10000L);
+        em.persist(t1);
 
-        // 2. [신청 완료 - PENDING] 진료기록 (조회 안 되어야 함 - 필터링 대상)
-        UserTreatment t2_pending = UserTreatment.of(user, hospital, LocalDate.now(), 20000L);
+        // 2. [신청 완료] A병원 - 20,000원 (PENDING 상태 - 필터링되어 합산에서 제외되어야 함)
+        UserTreatment t2_pending = UserTreatment.of(user, hospital, LocalDate.now().minusDays(1), 20000L);
         em.persist(t2_pending);
         createProxyRequest(user, t2_pending, ProxyStatus.PENDING);
 
-        // 3. [신청 취소 - CANCELLED] 진료기록 (조회 되어야 함 - 재신청 가능)
+        // 3. [신청 취소] A병원 - 30,000원 (CANCELLED 상태 - 재신청 가능하므로 합산에 포함되어야 함)
         UserTreatment t3_cancelled = UserTreatment.of(user, hospital, LocalDate.now(), 30000L);
         em.persist(t3_cancelled);
         createProxyRequest(user, t3_cancelled, ProxyStatus.CANCELLED);
 
         em.flush();
-        em.clear(); // 영속성 컨텍스트 초기화 (실제 DB 조회 발생 유도)
+        em.clear();
 
         // when
         Slice<ProxyRequestUnitResponse> result = userTreatmentRepository.findAvailableTreatments(user.getId(), PageRequest.of(0, 10));
@@ -76,14 +76,21 @@ class UserTreatmentRepositoryTest {
         // then
         List<ProxyRequestUnitResponse> content = result.getContent();
 
-        assertThat(content).hasSize(2); // t1, t3 만 나와야 함
+        // [검증 1] 병원별로 그룹화되었으므로 결과는 1줄이어야 함 (모두 같은 hospital이므로)
+        assertThat(content).hasSize(1);
 
-        // DTO 필드 검증
-        assertThat(content).extracting("treatmentId")
-                .containsExactlyInAnyOrder(t1_clean.getId(), t3_cancelled.getId());
+        ProxyRequestUnitResponse response = content.get(0);
 
-        assertThat(content).extracting("treatmentId")
-                .doesNotContain(t2_pending.getId()); // PENDING 상태인 t2는 없어야 한다.
+        // [검증 2] 식별자 및 병원 정보 확인
+        assertThat(response.hospitalId()).isEqualTo(hospital.getId());
+        assertThat(response.hospitalName()).isEqualTo(hospital.getName());
+
+        // [검증 3] 금액 합산 확인 (t1: 10,000 + t3: 30,000 = 40,000)
+        // t2(PENDING)는 제외되어야 함
+        assertThat(response.missedAmount()).isEqualTo(40000L);
+
+        // [검증 4] 날짜 확인 (t1, t3 중 더 최신인 t3의 날짜여야 함)
+        assertThat(response.treatmentDate()).isEqualTo(t3_cancelled.getTreatmentDate());
     }
 
 
@@ -113,5 +120,36 @@ class UserTreatmentRepositoryTest {
                 .build();
 
         em.persist(unit);
+    }
+
+    @Test
+    @DisplayName("선택한 병원 진료기록 조회: 유저 ID와 병원 ID 목록에 일치하는 진료기록만 반환한다.")
+    void find_all_by_userid_and_hospital_ids() {
+        // given
+        Hospital h1 = Hospital.of("A병원");
+        Hospital h2 = Hospital.of("B병원"); // 선택 대상
+        Hospital h3 = Hospital.of("C병원"); // 선택 대상
+        em.persist(h1);
+        em.persist(h2);
+        em.persist(h3);
+
+        UserTreatment t1 = UserTreatment.of(user, h1, LocalDate.now(), 1000L); // 제외 대상
+        UserTreatment t2 = UserTreatment.of(user, h2, LocalDate.now(), 2000L); // 포함 대상
+        UserTreatment t3 = UserTreatment.of(user, h3, LocalDate.now(), 3000L); // 포함 대상
+        em.persist(t1);
+        em.persist(t2);
+        em.persist(t3);
+
+        em.flush();
+        em.clear();
+
+        // when
+        List<Long> targetHospitalIds = List.of(h2.getId(), h3.getId());
+        List<UserTreatment> result = userTreatmentRepository.findAllByUserIdAndHospital_IdIn(user.getId(), targetHospitalIds);
+
+        // then
+        assertThat(result).hasSize(2);
+        assertThat(result).extracting("hospitalName")
+                .containsExactlyInAnyOrder("B병원", "C병원");
     }
 }
