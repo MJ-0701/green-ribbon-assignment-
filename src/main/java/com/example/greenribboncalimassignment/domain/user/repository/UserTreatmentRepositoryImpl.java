@@ -21,42 +21,46 @@ public class UserTreatmentRepositoryImpl implements UserTreatmentRepositoryCusto
 
     private final JPAQueryFactory queryFactory;
 
+    /**
+     * 신청 가능한 진료 기록 조회
+     * - 조건: 특정 유저의 진료 기록 중, 현재 진행 중(PENDING ~ COMPLETED/DISCLAIMER)인 대행 신청이 없는 건
+     * - 필터링: 취소(CANCELLED)된 건은 재신청 가능하므로 조회 대상에 포함됨
+     */
     @Override
     public Slice<ProxyRequestUnitResponse> findAvailableTreatments(Long userId, Pageable pageable) {
 
         List<ProxyRequestUnitResponse> content = queryFactory
                 .select(new QProxyRequestUnitResponse(
-                        userTreatment.id,
+                        userTreatment.hospital.id,         // treatmentId 자리에 대표값으로 hospitalId 사용
+                        userTreatment.hospital.id,         // hospitalId
                         userTreatment.hospitalName,
-                        userTreatment.treatmentDate,
-                        userTreatment.amount
+                        userTreatment.treatmentDate.max(), // 해당 병원의 가장 최근 진료일
+                        userTreatment.amount.sum()         // 병원별 금액 합산
                 ))
                 .from(userTreatment)
                 .where(
                         // 1. 특정 유저의 진료 기록
                         userTreatment.user.id.eq(userId),
 
-                        // 2. 이미 신청된 건(Active Request)이 "존재하지 않는(NOT EXISTS)" 것만 조회
+                        // 2. 이미 신청된 건(Active Request)에 포함되지 않은 개별 진료 기록만 필터링 후 합산
                         JPAExpressions
-                                .selectOne() // 1만 조회 (데이터 확인용)
+                                .selectOne()
                                 .from(proxyRequestUnit)
                                 .join(proxyRequestUnit.proxyRequest, proxyRequest)
                                 .where(
-                                        // 메인 쿼리의 treatment_id와 매칭 (상관 서브쿼리)
                                         proxyRequestUnit.userTreatment.id.eq(userTreatment.id),
-                                        // 신청자의 ID 검증 (인덱스 힌트 역할)
                                         proxyRequest.user.id.eq(userId),
-                                        // 취소된 건은 제외하고, 살아있는 신청 건만 체크
                                         proxyRequest.status.ne(ProxyStatus.CANCELLED)
                                 )
-                                .notExists() // 존재하지 않아야 함
+                                .notExists()
                 )
-                .orderBy(userTreatment.treatmentDate.desc()) // 최신순
+                .groupBy(userTreatment.hospital.id, userTreatment.hospitalName) // 병원 단위 그룹화
+                .orderBy(userTreatment.treatmentDate.max().desc())             // 최신 진료 발생 병원순
                 .offset(pageable.getOffset())
-                .limit(pageable.getPageSize() + 1) // Slice 체크용 (+1)
+                .limit(pageable.getPageSize() + 1)
                 .fetch();
 
-        // Slice 반환 로직 (hasNext 계산)
+        // Slice 처리 로직
         boolean hasNext = false;
         if (content.size() > pageable.getPageSize()) {
             content.remove(pageable.getPageSize());
