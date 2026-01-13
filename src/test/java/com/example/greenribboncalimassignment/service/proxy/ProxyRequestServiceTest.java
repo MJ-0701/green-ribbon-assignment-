@@ -16,6 +16,7 @@ import com.example.greenribboncalimassignment.domain.user.repository.UserTreatme
 import com.example.greenribboncalimassignment.domain.user.repository.UsersRepository;
 import com.example.greenribboncalimassignment.web.dto.request.ProxyCreateRequest;
 import com.example.greenribboncalimassignment.web.dto.response.ProxyCreateResponse;
+import com.example.greenribboncalimassignment.web.dto.response.ProxyDetailResponse;
 import com.example.greenribboncalimassignment.web.dto.response.ProxyRequestUnitResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -29,6 +30,7 @@ import org.springframework.data.domain.SliceImpl;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -174,5 +176,81 @@ class ProxyRequestServiceTest {
         // [검증] 진료 기록 조회나 저장은 실행되지 않아야 함 (검증에서 막혔으므로)
         then(userTreatmentRepository).shouldHaveNoInteractions();
         then(proxyRequestRepository).should(never()).save(any(ProxyRequest.class));
+    }
+
+    @Test
+    @DisplayName("상세 조회 성공: Repository에서 조회된 상세 정보를 반환한다.")
+    void get_proxy_request_detail_success() {
+        // given
+        Long proxyRequestId = 1L;
+
+        // 더미 응답 객체 생성 (Record는 생성자로 간단히 생성 가능)
+        ProxyDetailResponse.ProxyInfoDto info = new ProxyDetailResponse.ProxyInfoDto(
+                proxyRequestId, 1L, "홍길동",
+                GuaranteeType.NORMAL_POSTPAID, ProxyStatus.PENDING,
+                10000L, 2000L, LocalDateTime.now()
+        );
+        ProxyDetailResponse expectedResponse = new ProxyDetailResponse(info, List.of(), List.of());
+
+        // Mocking: findProxyDetail 호출 시 expectedResponse 반환
+        given(proxyRequestRepository.findProxyDetail(proxyRequestId)).willReturn(expectedResponse);
+
+        // when
+        ProxyDetailResponse actualResponse = proxyRequestService.getProxyRequestDetail(proxyRequestId);
+
+        // then
+        assertThat(actualResponse).isEqualTo(expectedResponse);
+        then(proxyRequestRepository).should().findProxyDetail(proxyRequestId);
+    }
+
+    @Test
+    @DisplayName("상세 조회 실패: 존재하지 않는 ID 조회 시 PROXY_REQUEST_NOT_FOUND 예외가 발생한다.")
+    void get_proxy_request_detail_fail_not_found() {
+        // given
+        Long invalidId = 999L;
+
+        // Mocking: null 반환
+        given(proxyRequestRepository.findProxyDetail(invalidId)).willReturn(null);
+
+        // when & then
+        assertThatThrownBy(() -> proxyRequestService.getProxyRequestDetail(invalidId))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("resultCode", ResultCode.PROXY_REQUEST_NOT_FOUND);
+
+        then(proxyRequestRepository).should().findProxyDetail(invalidId);
+    }
+
+    @Test
+    @DisplayName("목록 조회 성공: Repository에서 조회된 리스트를 반환한다.")
+    void get_proxy_request_list_success() {
+        // given
+        Long userId = 1L;
+
+        // 더미 데이터 생성
+        ProxyDetailResponse.ProxyInfoDto info1 = new ProxyDetailResponse.ProxyInfoDto(
+                2L, userId, "채명정",
+                GuaranteeType.NORMAL_PREPAID, ProxyStatus.PENDING,
+                20000L, 2000L, LocalDateTime.now()
+        );
+        ProxyDetailResponse.ProxyInfoDto info2 = new ProxyDetailResponse.ProxyInfoDto(
+                1L, userId, "채명정",
+                GuaranteeType.NORMAL_POSTPAID, ProxyStatus.COMPLETED,
+                10000L, 2000L, LocalDateTime.now().minusDays(1)
+        );
+
+        List<ProxyDetailResponse.ProxyInfoDto> expectedList = List.of(info1, info2);
+
+        // Mocking
+        given(proxyRequestRepository.findAllByUserId(userId)).willReturn(expectedList);
+
+        // when
+        List<ProxyDetailResponse.ProxyInfoDto> actualList = proxyRequestService.getProxyRequestList(userId);
+
+        // then
+        assertThat(actualList).hasSize(2);
+        assertThat(actualList).isEqualTo(expectedList);
+
+        // Repository 호출 검증
+        then(proxyRequestRepository).should().findAllByUserId(userId);
     }
 }

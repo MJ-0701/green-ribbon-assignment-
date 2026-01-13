@@ -16,6 +16,7 @@ import com.example.greenribboncalimassignment.domain.user.repository.UserTreatme
 import com.example.greenribboncalimassignment.domain.user.repository.UsersRepository;
 import com.example.greenribboncalimassignment.web.dto.request.ProxyCreateRequest;
 import com.example.greenribboncalimassignment.web.dto.response.ProxyCreateResponse;
+import com.example.greenribboncalimassignment.web.dto.response.ProxyDetailResponse;
 import com.example.greenribboncalimassignment.web.dto.response.ProxyRequestUnitResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
@@ -115,6 +116,26 @@ public class ProxyRequestService {
         );
 
         return ProxyCreateResponse.from(savedRequest);
+    }
+
+    /**
+     * 3.2 청구 대행 상세 조회
+     */
+    public ProxyDetailResponse getProxyRequestDetail(Long proxyRequestId) {
+        ProxyDetailResponse response = proxyRequestRepository.findProxyDetail(proxyRequestId);
+
+        if (response == null) {
+            throw new BusinessException(ResultCode.PROXY_REQUEST_NOT_FOUND);
+        }
+
+        return response;
+    }
+
+    public List<ProxyDetailResponse.ProxyInfoDto> getProxyRequestList(Long userId) {
+        // 유저 존재 확인 (선택 사항, 필요 시 주석 해제)
+        // if (!usersRepository.existsById(userId)) throw new BusinessException(ResultCode.USER_NOT_FOUND);
+
+        return proxyRequestRepository.findAllByUserId(userId);
     }
 
 

@@ -6,6 +6,7 @@ import com.example.greenribboncalimassignment.domain.proxy.entity.ProxyStatus;
 import com.example.greenribboncalimassignment.service.proxy.ProxyRequestService;
 import com.example.greenribboncalimassignment.web.dto.request.ProxyCreateRequest;
 import com.example.greenribboncalimassignment.web.dto.response.ProxyCreateResponse;
+import com.example.greenribboncalimassignment.web.dto.response.ProxyDetailResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -15,11 +16,13 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -95,5 +98,58 @@ class ProxyRequestRestControllerTest {
                 // 구체적으로 어떤 필드에서 에러가 났는지 확인
                 .andExpect(jsonPath("$.errors").isArray())
                 .andExpect(jsonPath("$.errors[0].field").value("hospitalIds"));
+    }
+
+    @Test
+    @DisplayName("상세 조회 API 성공")
+    void get_proxy_request_detail_success() throws Exception {
+        // given
+        Long proxyRequestId = 1L;
+
+        // Mock Response Data
+        ProxyDetailResponse.ProxyInfoDto info = new ProxyDetailResponse.ProxyInfoDto(
+                proxyRequestId, 1L, "홍길동",
+                GuaranteeType.NORMAL_POSTPAID, ProxyStatus.PENDING,
+                50000L, 10000L, LocalDateTime.now()
+        );
+        ProxyDetailResponse response = new ProxyDetailResponse(info, List.of(), List.of());
+
+        given(proxyRequestService.getProxyRequestDetail(proxyRequestId)).willReturn(response);
+
+        // when & then
+        mockMvc.perform(get("/api/proxy-requests/{id}", proxyRequestId)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.proxyInfo.userName").value("홍길동"))
+                .andExpect(jsonPath("$.data.proxyInfo.status").value("PENDING"));
+
+        then(proxyRequestService).should().getProxyRequestDetail(proxyRequestId);
+    }
+
+    @Test
+    @DisplayName("유저별 목록 조회 API 성공")
+    void get_proxy_request_list_success() throws Exception {
+        // given
+        Long userId = 1L;
+        ProxyDetailResponse.ProxyInfoDto info = new ProxyDetailResponse.ProxyInfoDto(
+                1L, userId, "홍길동",
+                GuaranteeType.NORMAL_POSTPAID, ProxyStatus.PENDING,
+                50000L, 10000L, LocalDateTime.now()
+        );
+
+        given(proxyRequestService.getProxyRequestList(userId)).willReturn(List.of(info));
+
+        // when & then
+        mockMvc.perform(get("/api/proxy-requests")
+                        .param("userId", String.valueOf(userId))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data[0].userName").value("홍길동"));
+
+        then(proxyRequestService).should().getProxyRequestList(userId);
     }
 }

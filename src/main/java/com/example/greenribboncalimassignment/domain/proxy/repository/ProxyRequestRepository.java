@@ -8,7 +8,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 
-public interface ProxyRequestRepository extends JpaRepository<ProxyRequest, Long> {
+public interface ProxyRequestRepository extends JpaRepository<ProxyRequest, Long>, ProxyRequestRepositoryCustom {
 
 
     boolean existsByUserIdAndStatusIn(Long userId, List<ProxyStatus> statuses);
