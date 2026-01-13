@@ -57,9 +57,10 @@ public class ProxyRequestService {
      * 3.1 청구 대행 신청
      * [Process]
      * 1. 유저 유효성 및 신청 정책 검증 (1인 1진행중 원칙)
-     * 2. 병원 ID 목록 기반 진료 기록 조회 및 종결 건 포함 여부 검증
-     * 3. 병원별 금액 합산 및 ProxyRequest/Unit 생성 (병원당 1 Unit)
-     * 4. 신청서 저장 및 초기 상태(PENDING) 이력 저장
+     * 2. 병원 ID 목록 기반 진료 기록 조회 및 종결 건 포함 여부 검증 -> 수정 : 병원 ID 목록 기반 재신청 가능 여부 검증 (종결된 병원 제외)
+     * 3. 진료 기록 조회
+     * 4. 병원별 금액 합산 및 ProxyRequest/Unit 생성 (병원당 1 Unit)
+     * 5. 신청서 저장 및 초기 상태(PENDING) 이력 저장
      */
     @Transactional
     public ProxyCreateResponse createProxyRequest(ProxyCreateRequest request) {
@@ -72,14 +73,14 @@ public class ProxyRequestService {
             throw new BusinessException(ResultCode.DUPLICATE_REQUEST_NOT_ALLOWED);
         }
 
-        // 3. 신청 대상 진료 기록 조회 (병원 ID 목록 기반)
+        // 3. 진료 기록 조회 전에 병원 ID만으로 먼저 체크
+        validateHospitalAvailability(request.userId(), request.hospitalIds());
+
+        // 4. 신청 대상 진료 기록 조회 (병원 ID 목록 기반)
         List<UserTreatment> treatments = userTreatmentRepository.findAllByUserIdAndHospital_IdIn(request.userId(), request.hospitalIds());
         if (treatments.isEmpty()) {
             throw new BusinessException(ResultCode.TREATMENT_NOT_FOUND);
         }
-
-        // 4. 데이터 검증: 이미 종결된 진료 기록 포함 여부 확인
-        validateTreatmentsAvailability(treatments);
 
         // 5. ProxyRequest (Aggregate Root) 생성
         ProxyRequest proxyRequest = ProxyRequest.of(user, request.guaranteeType());
@@ -95,7 +96,7 @@ public class ProxyRequestService {
 
             // 도메인 활용: 병원별 합산 금액을 가진 Unit 생성
             ProxyRequestUnit unit = ProxyRequestUnit.builder()
-                    .userTreatment(hospitalTreatments.get(0)) // 대표 진료기록
+                    .userTreatment(hospitalTreatments.get(0)) // 대표 진료기록 (병원 정보 참조용)
                     .missedAmount(totalHospitalAmount)
                     .build();
 
@@ -116,17 +117,12 @@ public class ProxyRequestService {
         return ProxyCreateResponse.from(savedRequest);
     }
 
-    private void validateTreatmentsAvailability(List<UserTreatment> treatments) {
-        List<Long> treatmentIds = treatments.stream()
-                .map(UserTreatment::getId)
-                .toList();
 
-        boolean existsProcessed = proxyRequestUnitRepository.existsByUserTreatmentIdInAndProxyRequest_StatusIn(
-                treatmentIds,
-                List.of(ProxyStatus.COMPLETED, ProxyStatus.DISCLAIMER)
-        );
+    // 수정 -> 종결(COMPLETED) 또는 면책(DISCLAIMER)된 병원은 다시 신청 불가능
+    private void validateHospitalAvailability(Long userId, List<Long> hospitalIds) {
+        boolean isBlocked = proxyRequestUnitRepository.existsProcessedHospital(userId, hospitalIds);
 
-        if (existsProcessed) {
+        if (isBlocked) {
             throw new BusinessException(ResultCode.ALREADY_PROCESSED_TREATMENT);
         }
     }
