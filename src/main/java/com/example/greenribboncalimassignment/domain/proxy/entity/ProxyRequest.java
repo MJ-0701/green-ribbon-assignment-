@@ -1,5 +1,8 @@
 package com.example.greenribboncalimassignment.domain.proxy.entity;
 
+import com.example.greenribboncalimassignment.common.BaseTimeEntity;
+import com.example.greenribboncalimassignment.common.exception.BusinessException;
+import com.example.greenribboncalimassignment.common.response.ResultCode;
 import com.example.greenribboncalimassignment.domain.user.entity.Users;
 import jakarta.persistence.*;
 import lombok.*;
@@ -15,7 +18,7 @@ import java.util.List;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
 @Builder
-public class ProxyRequest {
+public class ProxyRequest extends BaseTimeEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -46,6 +49,7 @@ public class ProxyRequest {
     @Comment("예상 수수료 (보장 타입에 따라 계산)")
     private Long feeAmount;
 
+    @Builder.Default // 단위 테스트중 NPE 방지
     @OneToMany(mappedBy = "proxyRequest", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ProxyRequestUnit> proxyRequestUnits = new ArrayList<>();
 
@@ -77,21 +81,18 @@ public class ProxyRequest {
     }
 
     public void updateStatus(ProxyStatus requestStatus) {
-        // 1. 상태 전이 유효성 검증 (Smart Enum 활용)
+        // 1. 상태 전이 유효성 검증
         if (!this.status.canTransitionTo(requestStatus)) {
-            throw new IllegalArgumentException(
-                    String.format("상태 변경 불가: %s -> %s", this.status, requestStatus)
-            );
+            // 커스텀 예외로 변경
+            throw new BusinessException(ResultCode.INVALID_STATUS_TRANSITION);
         }
 
         // 2. 선불 타입 특수 로직 처리
-        // "선불 타입의 경우 IN_PROGRESS → FEE_CLAIM 요청 시 자동으로 COMPLETED 로 전환"
         if (this.guaranteeType.isPrepaid()
                 && this.status == ProxyStatus.IN_PROGRESS
                 && requestStatus == ProxyStatus.FEE_CLAIM) {
             this.status = ProxyStatus.COMPLETED;
         } else {
-            // 3. 일반적인 상태 변경
             this.status = requestStatus;
         }
     }

@@ -1,5 +1,6 @@
 package com.example.greenribboncalimassignment.domain.user.entity;
 
+import com.example.greenribboncalimassignment.common.BaseTimeEntity;
 import com.example.greenribboncalimassignment.domain.hospital.entity.Hospital;
 import jakarta.persistence.*;
 import lombok.*;
@@ -14,7 +15,7 @@ import java.time.LocalDate;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
 @Builder
-public class UserTreatment {
+public class UserTreatment extends BaseTimeEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
