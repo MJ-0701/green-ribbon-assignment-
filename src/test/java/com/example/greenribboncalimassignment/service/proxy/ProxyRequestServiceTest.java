@@ -15,6 +15,7 @@ import com.example.greenribboncalimassignment.domain.user.entity.Users;
 import com.example.greenribboncalimassignment.domain.user.repository.UserTreatmentRepository;
 import com.example.greenribboncalimassignment.domain.user.repository.UsersRepository;
 import com.example.greenribboncalimassignment.web.dto.request.ProxyCreateRequest;
+import com.example.greenribboncalimassignment.web.dto.request.ProxyStatusUpdateRequest;
 import com.example.greenribboncalimassignment.web.dto.response.ProxyCreateResponse;
 import com.example.greenribboncalimassignment.web.dto.response.ProxyDetailResponse;
 import com.example.greenribboncalimassignment.web.dto.response.ProxyRequestUnitResponse;
@@ -252,5 +253,83 @@ class ProxyRequestServiceTest {
 
         // Repository 호출 검증
         then(proxyRequestRepository).should().findAllByUserId(userId);
+    }
+
+    @Test
+    @DisplayName("상태 변경 성공: 일반 후불 건을 IN_PROGRESS -> FEE_CLAIM으로 변경한다.")
+    void update_status_normal_postpaid_success() {
+        // given
+        Long proxyRequestId = 1L;
+        ProxyStatusUpdateRequest request = new ProxyStatusUpdateRequest(ProxyStatus.FEE_CLAIM, null);
+
+        // 후불(NORMAL_POSTPAID), 진행중 상태
+        ProxyRequest proxyRequest = ProxyRequest.builder()
+                .user(Users.of("유저"))
+                .guaranteeType(GuaranteeType.NORMAL_POSTPAID)
+                .status(ProxyStatus.IN_PROGRESS)
+                .totalMissedAmount(10000L).feeAmount(1000L)
+                .build();
+
+        given(proxyRequestRepository.findById(proxyRequestId)).willReturn(Optional.of(proxyRequest));
+
+        // when
+        proxyRequestService.updateProxyRequestStatus(proxyRequestId, request);
+
+        // then
+        // 1. 상태가 FEE_CLAIM(수수료안내)으로 변경되어야 함
+        assertThat(proxyRequest.getStatus()).isEqualTo(ProxyStatus.FEE_CLAIM);
+
+        // 2. 이력 저장 검증
+        then(proxyRequestHistoryRepository).should().save(any(ProxyRequestHistory.class));
+    }
+
+    @Test
+    @DisplayName("상태 변경 성공: 선불(Prepaid) 건에 대해 '수수료안내(FEE_CLAIM)' 요청 시 '결제완료(COMPLETED)'로 자동 변경된다.")
+    void update_status_prepaid_auto_complete_success() {
+        // given
+        Long proxyRequestId = 1L;
+
+        ProxyStatusUpdateRequest request = new ProxyStatusUpdateRequest(ProxyStatus.FEE_CLAIM, "수수료 안내 요청");
+
+        // 선불(PREPAID), 진행중 상태
+        ProxyRequest proxyRequest = ProxyRequest.builder()
+                .user(Users.of("유저"))
+                .guaranteeType(GuaranteeType.NORMAL_PREPAID) // 선불
+                .status(ProxyStatus.IN_PROGRESS)
+                .totalMissedAmount(10000L).feeAmount(1000L)
+                .build();
+
+        given(proxyRequestRepository.findById(proxyRequestId)).willReturn(Optional.of(proxyRequest));
+
+        // when
+        proxyRequestService.updateProxyRequestStatus(proxyRequestId, request);
+
+        // then
+        // 요청은 FEE_CLAIM이었지만, 결과는 COMPLETED여야 함
+        assertThat(proxyRequest.getStatus()).isEqualTo(ProxyStatus.COMPLETED);
+
+        // 이력에도 COMPLETED로 저장되었는지 확인
+        then(proxyRequestHistoryRepository).should().save(argThat(history ->
+                history.getNextStatus() == ProxyStatus.COMPLETED
+        ));
+    }
+
+    @Test
+    @DisplayName("상태 변경 실패: 잘못된 상태 전이 요청 시 400 Bad Request 예외가 발생한다.")
+    void update_status_fail_invalid_transition() {
+        // given
+        Long proxyRequestId = 1L;
+        // PENDING -> COMPLETED (건너뛰기 불가)
+        ProxyStatusUpdateRequest request = new ProxyStatusUpdateRequest(ProxyStatus.COMPLETED, null);
+
+        ProxyRequest proxyRequest = ProxyRequest.of(Users.of("유저"), GuaranteeType.NORMAL_POSTPAID);
+        // 초기 상태: PENDING
+        given(proxyRequestRepository.findById(proxyRequestId)).willReturn(Optional.of(proxyRequest));
+
+        // when & then
+        // Entity 내부 로직에 의해 예외 발생
+        assertThatThrownBy(() -> proxyRequestService.updateProxyRequestStatus(proxyRequestId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("resultCode", ResultCode.INVALID_STATUS_TRANSITION);
     }
 }

@@ -3,6 +3,7 @@ package com.example.greenribboncalimassignment.web.controller;
 import com.example.greenribboncalimassignment.common.response.ApiResponse;
 import com.example.greenribboncalimassignment.service.proxy.ProxyRequestService;
 import com.example.greenribboncalimassignment.web.dto.request.ProxyCreateRequest;
+import com.example.greenribboncalimassignment.web.dto.request.ProxyStatusUpdateRequest;
 import com.example.greenribboncalimassignment.web.dto.response.ProxyCreateResponse;
 import com.example.greenribboncalimassignment.web.dto.response.ProxyDetailResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -50,6 +51,17 @@ public class ProxyRequestRestController {
     ) {
         ProxyDetailResponse response = proxyRequestService.getProxyRequestDetail(proxyRequestId);
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @Operation(summary = "3.3 청구 대행 상태 변경", description = "청구 대행 신청의 진행 상태를 변경합니다. (선불 건은 수수료 안내 요청 시 자동 결제완료 처리)")
+    @PatchMapping("/{proxyRequestId}/status")
+    public ResponseEntity<ApiResponse<Void>> updateProxyRequestStatus(
+            @Parameter(description = "청구 대행 ID", required = true)
+            @PathVariable Long proxyRequestId,
+            @RequestBody @Valid ProxyStatusUpdateRequest request
+    ) {
+        proxyRequestService.updateProxyRequestStatus(proxyRequestId, request);
+        return ResponseEntity.ok(ApiResponse.success(null));
     }
 
 

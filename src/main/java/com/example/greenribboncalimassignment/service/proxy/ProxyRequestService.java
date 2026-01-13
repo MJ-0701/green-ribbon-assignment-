@@ -15,6 +15,7 @@ import com.example.greenribboncalimassignment.domain.user.entity.Users;
 import com.example.greenribboncalimassignment.domain.user.repository.UserTreatmentRepository;
 import com.example.greenribboncalimassignment.domain.user.repository.UsersRepository;
 import com.example.greenribboncalimassignment.web.dto.request.ProxyCreateRequest;
+import com.example.greenribboncalimassignment.web.dto.request.ProxyStatusUpdateRequest;
 import com.example.greenribboncalimassignment.web.dto.response.ProxyCreateResponse;
 import com.example.greenribboncalimassignment.web.dto.response.ProxyDetailResponse;
 import com.example.greenribboncalimassignment.web.dto.response.ProxyRequestUnitResponse;
@@ -136,6 +137,45 @@ public class ProxyRequestService {
         // if (!usersRepository.existsById(userId)) throw new BusinessException(ResultCode.USER_NOT_FOUND);
 
         return proxyRequestRepository.findAllByUserId(userId);
+    }
+
+    /**
+     * 3.3 청구 대행 상태 변경
+     */
+    @Transactional
+    public void updateProxyRequestStatus(Long proxyRequestId, ProxyStatusUpdateRequest request) {
+        // 1. 조회
+        ProxyRequest proxyRequest = proxyRequestRepository.findById(proxyRequestId)
+                .orElseThrow(() -> new BusinessException(ResultCode.PROXY_REQUEST_NOT_FOUND));
+
+        ProxyStatus previousStatus = proxyRequest.getStatus();
+        ProxyStatus requestedStatus = request.status();
+
+        // 2. 상태 변경 (도메인 엔티티 로직 호출)
+        try {
+            proxyRequest.updateStatus(requestedStatus);
+        } catch (BusinessException e) {
+            // 엔티티에서 던진 예외를 그대로 전파
+            throw e;
+        }
+
+        // 3. 변경된 최종 상태 확인
+        ProxyStatus actualFinalStatus = proxyRequest.getStatus();
+
+        // 4. 이력 저장
+        String historyReason = request.reason();
+
+        // 선불 자동 완료 케이스에 대한 사유 자동 기입 (선택)
+        if (requestedStatus == ProxyStatus.FEE_CLAIM && actualFinalStatus == ProxyStatus.COMPLETED) {
+            historyReason = "선불 건 수수료 안내 요청에 의한 자동 결제 완료 처리";
+        }
+
+        saveHistory(
+                proxyRequest,
+                previousStatus,
+                actualFinalStatus,
+                historyReason != null ? historyReason : "상태 변경 API 호출"
+        );
     }
 
 
