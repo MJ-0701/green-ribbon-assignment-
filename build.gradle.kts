@@ -28,6 +28,7 @@ dependencies {
     // Spring Boot Starter
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("org.springframework.boot:spring-boot-starter-validation")
 
     // Lombok
     compileOnly("org.projectlombok:lombok")
@@ -52,6 +53,9 @@ dependencies {
 
     // 4. java.lang.NoClassDefFoundError (javax.persistence.Entity) 대응
     annotationProcessor("jakarta.persistence:jakarta.persistence-api")
+
+    // Swagger (SpringDoc for Boot 3)
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.3.0")
 }
 
 tasks.withType<Test> {
