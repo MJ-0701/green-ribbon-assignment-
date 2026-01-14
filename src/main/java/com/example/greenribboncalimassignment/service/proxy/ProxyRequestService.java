@@ -189,6 +189,13 @@ public class ProxyRequestService {
 
         // 도메인 엔티티의 삭제 로직 호출 (상태 검증 포함)
         proxyRequest.delete();
+
+        saveHistory(
+                proxyRequest,
+                proxyRequest.getStatus(),
+                ProxyStatus.CANCELLED,
+                ProxyStatus.CANCELLED.getDescription()
+        );
     }
 
 

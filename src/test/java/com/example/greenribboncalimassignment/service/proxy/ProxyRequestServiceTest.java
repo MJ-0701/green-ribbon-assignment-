@@ -351,7 +351,6 @@ class ProxyRequestServiceTest {
         proxyRequestService.deleteProxyRequest(proxyRequestId);
 
         // then
-        // deletedAt이 기록되었는지 확인
         assertThat(proxyRequest.getStatus()).isEqualTo(ProxyStatus.CANCELLED);
     }
 
@@ -373,7 +372,7 @@ class ProxyRequestServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("resultCode", ResultCode.CANCEL_ONLY_AT_PENDING);
 
-        // 삭제 필드는 여전히 null이어야 함
-        assertThat(proxyRequest.getDeletedAt()).isNull();
+        // deletedAt 체크 제거 -> 상태가 여전히 IN_PROGRESS 인지 검증
+        assertThat(proxyRequest.getStatus()).isEqualTo(ProxyStatus.IN_PROGRESS);
     }
 }
