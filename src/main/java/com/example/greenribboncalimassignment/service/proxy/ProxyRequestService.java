@@ -2,6 +2,7 @@ package com.example.greenribboncalimassignment.service.proxy;
 
 import com.example.greenribboncalimassignment.common.exception.BusinessException;
 import com.example.greenribboncalimassignment.common.response.ResultCode;
+import com.example.greenribboncalimassignment.common.response.SliceResponse;
 import com.example.greenribboncalimassignment.domain.hospital.entity.Hospital;
 import com.example.greenribboncalimassignment.domain.proxy.entity.ProxyRequest;
 import com.example.greenribboncalimassignment.domain.proxy.entity.ProxyRequestHistory;
@@ -45,14 +46,14 @@ public class ProxyRequestService {
      * - 이미 신청 중(PENDING ~ FEE_CLAIM)인 건은 제외하고 조회
      * - Slice Paging 적용 (무한 스크롤)
      */
-    public Slice<ProxyRequestUnitResponse> getAvailableTreatments(Long userId, Pageable pageable) {
+    public SliceResponse<ProxyRequestUnitResponse> getAvailableTreatments(Long userId, Pageable pageable) {
         // 1. 유저 검증
         if (!usersRepository.existsById(userId)) {
             throw new BusinessException(ResultCode.USER_NOT_FOUND);
         }
 
         // 2. 조회 (필터링 로직은 서브쿼리로 처리 됩니다.)
-        return userTreatmentRepository.findAvailableTreatments(userId, pageable);
+        return SliceResponse.from(userTreatmentRepository.findAvailableTreatments(userId, pageable));
     }
 
     /**

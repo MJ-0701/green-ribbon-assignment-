@@ -24,10 +24,10 @@
 * **UserTreatment**: 30건 이상의 랜덤 진료 기록 및 채명정님의 고정 진료 기록
 
 ### 접속 정보
-- **H2 Console**: `http://localhost:8080/h2-console`
+- **H2 Console**: http://localhost:8080/h2-console
   - **JDBC URL**: `jdbc:h2:mem:green_ribbon;MODE=MySQL`
   - **User / Password**: `user` / `user`
-- **Swagger UI**: `http://localhost:8080/swagger-ui/index.html`
+- **Swagger UI**: http://localhost:8080/swagger-ui/index.html
 
 ---
 

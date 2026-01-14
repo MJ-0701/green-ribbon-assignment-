@@ -1,16 +1,23 @@
 package com.example.greenribboncalimassignment.common.response;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Getter;
 
 @Getter
+@Schema(description = "시스템 공통 표준 응답")
 public class ApiResponse<T> {
 
+    @Schema(description = "응답 코드 (성공: SUCCESS, 실패: 에러 코드)", example = "SUCCESS")
     private final String code;
 
+    @Schema(description = "응답 상태 값 (HTTP Status와 동일하거나 내부 정의 코드)", example = "200")
     private final int status;
 
+    @Schema(description = "응답 메시지", example = "정상적으로 처리되었습니다.")
     private final String message;
+
+    @Schema(description = "응답 데이터 (성공 시 결과 객체, 실패 시 null일 수 있음)")
     private final T data;
 
     // 생성자에서 Enum의 모든 정보를 다 가져옵니다.
