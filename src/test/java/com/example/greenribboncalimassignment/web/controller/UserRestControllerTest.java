@@ -1,5 +1,6 @@
 package com.example.greenribboncalimassignment.web.controller;
 
+import com.example.greenribboncalimassignment.common.response.SliceResponse;
 import com.example.greenribboncalimassignment.service.proxy.ProxyRequestService;
 import com.example.greenribboncalimassignment.web.dto.response.ProxyRequestUnitResponse;
 import org.junit.jupiter.api.DisplayName;
@@ -37,7 +38,7 @@ class UserRestControllerTest {
     void get_user_treatments_success() throws Exception {
         // given
         Long userId = 1L;
-        Slice<ProxyRequestUnitResponse> emptySlice = new SliceImpl<>(List.of());
+        SliceResponse<ProxyRequestUnitResponse> emptySlice = SliceResponse.from(new SliceImpl<>(List.of()));
 
         // Service가 호출되면 빈 Slice를 반환하도록 설정
         given(proxyRequestService.getAvailableTreatments(eq(userId), any(Pageable.class)))
