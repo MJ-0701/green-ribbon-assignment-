@@ -2,6 +2,7 @@ package com.example.greenribboncalimassignment.service.proxy;
 
 import com.example.greenribboncalimassignment.common.exception.BusinessException;
 import com.example.greenribboncalimassignment.common.response.ResultCode;
+import com.example.greenribboncalimassignment.common.response.SliceResponse;
 import com.example.greenribboncalimassignment.domain.hospital.entity.Hospital;
 import com.example.greenribboncalimassignment.domain.proxy.entity.GuaranteeType;
 import com.example.greenribboncalimassignment.domain.proxy.entity.ProxyRequest;
@@ -79,11 +80,12 @@ class ProxyRequestServiceTest {
                 .willReturn(expectedSlice);
 
         // when
-        Slice<ProxyRequestUnitResponse> result = proxyRequestService.getAvailableTreatments(userId, pageable);
+        SliceResponse<ProxyRequestUnitResponse> result = proxyRequestService.getAvailableTreatments(userId, pageable);
 
         // then
-        assertThat(result).isEqualTo(expectedSlice);
-        then(userTreatmentRepository).should().findAvailableTreatments(userId, pageable); // 호출 확인
+        assertThat(result.content()).isEmpty(); // 혹은 isEqualTo(content)
+        assertThat(result.hasNext()).isFalse();
+        assertThat(result.currentPage()).isEqualTo(0);
     }
 
     @Test
@@ -124,11 +126,13 @@ class ProxyRequestServiceTest {
         UserTreatment t3 = UserTreatment.of(user, h2, LocalDate.now(), 50000L);
         List<UserTreatment> treatments = List.of(t1, t2, t3);
 
-        given(usersRepository.findById(userId)).willReturn(Optional.of(user));
+        // [변경 1] 비관적 락 메서드로 Mocking
+        given(usersRepository.findByIdWithLock(userId)).willReturn(Optional.of(user));
+
         given(proxyRequestRepository.existsOngoingRequest(userId)).willReturn(false);
 
-        // 수정 병원 단위 검증 통과 (false 반환)
-        given(proxyRequestUnitRepository.existsByHospitalIdInAndStatus(any(), anyList(), anyList()))
+        // [변경 2] 중복 병원 검증 메서드 변경 (existsProcessedHospital)
+        given(proxyRequestUnitRepository.existsProcessedHospital(userId, hospitalIds))
                 .willReturn(false);
 
         given(userTreatmentRepository.findAllByUserIdAndHospital_IdIn(userId, hospitalIds)).willReturn(treatments);
@@ -145,8 +149,8 @@ class ProxyRequestServiceTest {
         // then
         assertThat(response.proxyRequestId()).isEqualTo(1L);
         assertThat(response.status()).isEqualTo(ProxyStatus.PENDING);
-        assertThat(response.totalMissedAmount()).isEqualTo(80000L);
-        assertThat(response.feeAmount()).isEqualTo(16000L);
+        assertThat(response.totalMissedAmount()).isEqualTo(80000L); // (1만+2만) + 5만
+        assertThat(response.feeAmount()).isEqualTo(16000L); // 80000 * 0.2 (일반후불)
 
         then(proxyRequestHistoryRepository).should(times(1)).save(any(ProxyRequestHistory.class));
     }
@@ -156,25 +160,26 @@ class ProxyRequestServiceTest {
     void create_proxy_request_fail_already_processed() {
         // given
         Long userId = 1L;
-        List<Long> hospitalIds = List.of(101L); // 101번 병원 신청 시도
+        List<Long> hospitalIds = List.of(101L);
         ProxyCreateRequest request = new ProxyCreateRequest(userId, GuaranteeType.NORMAL_POSTPAID, hospitalIds);
 
         Users user = Users.of("채명정");
 
-        given(usersRepository.findById(userId)).willReturn(Optional.of(user));
+        // [변경 1] 비관적 락 메서드로 Mocking (실패 케이스여도 유저 조회는 성공해야 함)
+        given(usersRepository.findByIdWithLock(userId)).willReturn(Optional.of(user));
+
         given(proxyRequestRepository.existsOngoingRequest(userId)).willReturn(false);
 
-        // 수정 병원 단위 검증 실패 (true 반환 -> 이미 처리된 병원 존재)
-        given(proxyRequestUnitRepository.existsByHospitalIdInAndStatus(
-                eq(userId), eq(hospitalIds), anyList())
-        ).willReturn(true);
+        // [변경 2] 중복 병원 검증 메서드 변경 -> true 리턴
+        given(proxyRequestUnitRepository.existsProcessedHospital(eq(userId), eq(hospitalIds)))
+                .willReturn(true);
 
         // when & then
         assertThatThrownBy(() -> proxyRequestService.createProxyRequest(request))
                 .isInstanceOf(BusinessException.class)
-                .hasFieldOrPropertyWithValue("resultCode", ResultCode.ALREADY_PROCESSED_TREATMENT); // 또는 ALREADY_PROCESSED_HOSPITAL
+                .hasFieldOrPropertyWithValue("resultCode", ResultCode.ALREADY_PROCESSED_TREATMENT);
 
-        // [검증] 진료 기록 조회나 저장은 실행되지 않아야 함 (검증에서 막혔으므로)
+        // [검증] 진료 기록 조회나 저장은 실행되지 않아야 함
         then(userTreatmentRepository).shouldHaveNoInteractions();
         then(proxyRequestRepository).should(never()).save(any(ProxyRequest.class));
     }

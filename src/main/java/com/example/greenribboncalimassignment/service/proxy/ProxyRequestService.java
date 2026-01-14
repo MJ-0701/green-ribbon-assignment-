@@ -67,8 +67,8 @@ public class ProxyRequestService {
      */
     @Transactional
     public ProxyCreateResponse createProxyRequest(ProxyCreateRequest request) {
-        // 1. 유저 조회
-        Users user = usersRepository.findById(request.userId())
+        // 1. 유저 조회 -> 비관적락 동시성 제어
+        Users user = usersRepository.findByIdWithLock(request.userId())
                 .orElseThrow(() -> new BusinessException(ResultCode.USER_NOT_FOUND));
 
         // 2. 정책 검증: 동일 유저의 진행 중인 신청 건 존재 시 차단
