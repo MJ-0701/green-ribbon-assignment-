@@ -1,5 +1,6 @@
 package com.example.greenribboncalimassignment.domain.proxy.entity;
 
+import com.example.greenribboncalimassignment.common.BaseTimeEntity;
 import com.example.greenribboncalimassignment.domain.user.entity.UserTreatment;
 import jakarta.persistence.*;
 import lombok.*;
@@ -12,7 +13,7 @@ import org.hibernate.annotations.Comment;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
 @Builder
-public class ProxyRequestUnit {
+public class ProxyRequestUnit extends BaseTimeEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

@@ -1,0 +1,248 @@
+package com.example.greenribboncalimassignment.web.controller;
+
+import com.example.greenribboncalimassignment.common.exception.BusinessException;
+import com.example.greenribboncalimassignment.common.response.ResultCode;
+import com.example.greenribboncalimassignment.domain.proxy.entity.GuaranteeType;
+import com.example.greenribboncalimassignment.domain.proxy.entity.ProxyStatus;
+import com.example.greenribboncalimassignment.service.proxy.ProxyRequestService;
+import com.example.greenribboncalimassignment.web.dto.request.ProxyCreateRequest;
+import com.example.greenribboncalimassignment.web.dto.request.ProxyStatusUpdateRequest;
+import com.example.greenribboncalimassignment.web.dto.response.ProxyCreateResponse;
+import com.example.greenribboncalimassignment.web.dto.response.ProxyDetailResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@WebMvcTest(ProxyRequestRestController.class)
+class ProxyRequestRestControllerTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @MockBean
+    private ProxyRequestService proxyRequestService;
+
+    @Test
+    @DisplayName("청구 대행 신청 API 호출 성공")
+    void create_proxy_request_success() throws Exception {
+        // given
+        ProxyCreateRequest request = new ProxyCreateRequest(
+                1L,
+                GuaranteeType.NORMAL_POSTPAID,
+                List.of(101L, 102L)
+        );
+
+        ProxyCreateResponse response = new ProxyCreateResponse(
+                1L,
+                ProxyStatus.PENDING,
+                30000L,
+                6000L
+        );
+
+        given(proxyRequestService.createProxyRequest(any(ProxyCreateRequest.class)))
+                .willReturn(response);
+
+        // when & then
+        mockMvc.perform(post("/api/proxy-requests")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andDo(print()) // 테스트 로그 출력
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.proxyRequestId").value(1L))
+                .andExpect(jsonPath("$.data.status").value("PENDING"));
+
+        then(proxyRequestService).should().createProxyRequest(any(ProxyCreateRequest.class));
+    }
+
+    @Test
+    @DisplayName("유효성 검증 실패: 병원 ID가 비어있으면 400 에러와 함께 구체적인 에러 응답(INVALID_INPUT_VALUE)을 반환한다.")
+    void create_proxy_request_fail_validation() throws Exception {
+        // given
+        // hospitalIds가 빈 리스트 -> DTO의 @NotEmpty 위반
+        ProxyCreateRequest invalidRequest = new ProxyCreateRequest(
+                1L,
+                GuaranteeType.NORMAL_POSTPAID,
+                List.of()
+        );
+
+        // when & then
+        mockMvc.perform(post("/api/proxy-requests")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(invalidRequest)))
+                .andDo(print()) // 로그 확인
+                .andExpect(status().isBadRequest()) // HTTP 400 확인
+
+                // GlobalExceptionHandler가 잡아낸 에러 코드 확인
+                .andExpect(jsonPath("$.code").value(ResultCode.INVALID_INPUT_VALUE.getCode()))
+                .andExpect(jsonPath("$.message").value(ResultCode.INVALID_INPUT_VALUE.getMessage()))
+
+                // 구체적으로 어떤 필드에서 에러가 났는지 확인
+                .andExpect(jsonPath("$.errors").isArray())
+                .andExpect(jsonPath("$.errors[0].field").value("hospitalIds"));
+    }
+
+    @Test
+    @DisplayName("상세 조회 API 성공")
+    void get_proxy_request_detail_success() throws Exception {
+        // given
+        Long proxyRequestId = 1L;
+
+        // Mock Response Data
+        ProxyDetailResponse.ProxyInfoDto info = new ProxyDetailResponse.ProxyInfoDto(
+                proxyRequestId, 1L, "홍길동",
+                GuaranteeType.NORMAL_POSTPAID, ProxyStatus.PENDING,
+                50000L, 10000L, LocalDateTime.now()
+        );
+        ProxyDetailResponse response = new ProxyDetailResponse(info, List.of(), List.of());
+
+        given(proxyRequestService.getProxyRequestDetail(proxyRequestId)).willReturn(response);
+
+        // when & then
+        mockMvc.perform(get("/api/proxy-requests/{id}", proxyRequestId)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.proxyInfo.userName").value("홍길동"))
+                .andExpect(jsonPath("$.data.proxyInfo.status").value("PENDING"));
+
+        then(proxyRequestService).should().getProxyRequestDetail(proxyRequestId);
+    }
+
+    @Test
+    @DisplayName("유저별 목록 조회 API 성공")
+    void get_proxy_request_list_success() throws Exception {
+        // given
+        Long userId = 1L;
+        ProxyDetailResponse.ProxyInfoDto info = new ProxyDetailResponse.ProxyInfoDto(
+                1L, userId, "홍길동",
+                GuaranteeType.NORMAL_POSTPAID, ProxyStatus.PENDING,
+                50000L, 10000L, LocalDateTime.now()
+        );
+
+        given(proxyRequestService.getProxyRequestList(userId)).willReturn(List.of(info));
+
+        // when & then
+        mockMvc.perform(get("/api/proxy-requests")
+                        .param("userId", String.valueOf(userId))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data[0].userName").value("홍길동"));
+
+        then(proxyRequestService).should().getProxyRequestList(userId);
+    }
+
+    @Test
+    @DisplayName("3.3 상태 변경 API 성공: 정상적인 요청이 오면 서비스를 호출하고 200 OK를 반환한다.")
+    void update_proxy_request_status_success() throws Exception {
+        // given
+        Long proxyRequestId = 1L;
+        ProxyStatusUpdateRequest request = new ProxyStatusUpdateRequest(ProxyStatus.FEE_CLAIM, "수수료 청구 요청");
+
+        // when & then
+        mockMvc.perform(patch("/api/proxy-requests/{proxyRequestId}/status", proxyRequestId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))) // .with(csrf()) 제거됨
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"));
+
+        // Verify
+        then(proxyRequestService).should().updateProxyRequestStatus(eq(proxyRequestId), any(ProxyStatusUpdateRequest.class));
+    }
+
+    @Test
+    @DisplayName("3.3 상태 변경 API 실패: 필수 값(Status)이 누락되면 400 Bad Request를 반환한다.")
+    void update_proxy_request_status_fail_validation() throws Exception {
+        // given
+        Long proxyRequestId = 1L;
+        ProxyStatusUpdateRequest invalidRequest = new ProxyStatusUpdateRequest(null, "사유만 있음");
+
+        // when & then
+        mockMvc.perform(patch("/api/proxy-requests/{proxyRequestId}/status", proxyRequestId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(invalidRequest))) // .with(csrf()) 제거됨
+                .andDo(print())
+                .andExpect(status().isBadRequest());
+
+        // Verify
+        then(proxyRequestService).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("3.3 상태 변경 API 실패: 서비스에서 예외(잘못된 상태 전이) 발생 시 에러 응답을 반환한다.")
+    void update_proxy_request_status_fail_business_exception() throws Exception {
+        // given
+        Long proxyRequestId = 1L;
+        ProxyStatusUpdateRequest request = new ProxyStatusUpdateRequest(ProxyStatus.COMPLETED, "강제 종료");
+
+        // Mocking
+        willThrow(new BusinessException(ResultCode.INVALID_STATUS_TRANSITION))
+                .given(proxyRequestService)
+                .updateProxyRequestStatus(eq(proxyRequestId), any(ProxyStatusUpdateRequest.class));
+
+        // when & then
+        mockMvc.perform(patch("/api/proxy-requests/{proxyRequestId}/status", proxyRequestId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))) // .with(csrf()) 제거됨
+                .andDo(print())
+                .andExpect(status().isBadRequest()) // GlobalExceptionHandler 설정에 따름 (보통 400)
+                .andExpect(jsonPath("$.code").value(ResultCode.INVALID_STATUS_TRANSITION.getCode()));
+    }
+
+    @Test
+    @DisplayName("3.4 취소 API 성공: 정상 요청 시 200 OK를 반환한다.")
+    void delete_proxy_request_success() throws Exception {
+        // given
+        Long proxyRequestId = 1L;
+
+        // when & then
+        mockMvc.perform(delete("/api/proxy-requests/{proxyRequestId}", proxyRequestId)
+                        .contentType(MediaType.APPLICATION_JSON)) // .with(csrf()) 제거됨
+                .andDo(print())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"));
+
+        then(proxyRequestService).should().deleteProxyRequest(proxyRequestId);
+    }
+
+    @Test
+    @DisplayName("3.4 취소 API 실패: 취소 불가능한 상태인 경우 400 Bad Request를 반환한다.")
+    void delete_proxy_request_fail() throws Exception {
+        // given
+        Long proxyRequestId = 1L;
+
+        // Mocking: 서비스에서 예외 발생
+        willThrow(new BusinessException(ResultCode.CANCEL_ONLY_AT_PENDING))
+                .given(proxyRequestService)
+                .deleteProxyRequest(proxyRequestId);
+
+        // when & then
+        mockMvc.perform(delete("/api/proxy-requests/{proxyRequestId}", proxyRequestId)
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andDo(print())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ResultCode.CANCEL_ONLY_AT_PENDING.getCode()));
+    }
+}

@@ -1,93 +1,174 @@
 # 놓친 보험금 청구 대행 시스템 (Green Ribbon Backend Assignment)
 
-## 1. 프로젝트 개요
-사용자의 진료 기록을 기반으로 놓친 보험금을 계산하고, 청구 대행 신청을 처리하는 REST API 시스템입니다.
+## 1. 실행 방법
 
-### 🛠 기술 스택
-- **Java 17**
-- **Spring Boot 3.x**
-- **JPA (Hibernate)**
-- **QueryDSL 5.x**
-- **H2 Database**
+### 환경 요구사항
+- **Java**: JDK 17
+- **Framework**: Spring Boot 3.x
+- **Database**: H2 Database (In-Memory Mode)
 
----
-
-## 2. 도메인 및 엔티티 설계 의도 (Domain Modeling)
-
-본 프로젝트는 비즈니스 로직의 응집도를 높이고 유지보수성을 확보하기 위해 **도메인 주도 설계(DDD)**의 사상을 일부 차용하여 패키지 구조와 엔티티를 설계했습니다.
-
-### 2.1 패키지 구조
-기능 단위가 아닌 **도메인 단위**로 패키지를 분리하여 비즈니스 관심사를 명확히 했습니다.
-- `domain.user`: 사용자 및 사용자의 하위 데이터(진료 기록) 관리
-- `domain.hospital`: 병원 마스터 데이터 관리
-- `domain.proxy`: 핵심 비즈니스인 청구 대행(신청, 대행 단위) 관리
-
-### 2.2 엔티티 설계 핵심 전략
-1.  **Setter 사용 지양 & Builder 패턴 적용**: 불완전한 객체 생성을 막고, 객체의 일관성을 유지하기 위해 무분별한 Setter 사용을 제한했습니다.
-2.  **생성자 접근 제어(`PROTECTED`)**: JPA 프록시 생성을 허용하되, 외부에서의 무분별한 `new` 생성을 방지하여 팩토리 메서드나 빌더 사용을 강제했습니다.
-3.  **Rich Domain Model**: 비즈니스 로직(수수료 계산, 상태 변경 검증, 하위 엔티티 관리)을 서비스 계층이 아닌 **엔티티와 Enum 내부**로 가져와 객체지향적인 설계를 지향했습니다.
-
-### 2.3 주요 엔티티 설계 상세
-
-#### `UserTreatment` (유저 진료 기록)
-- **설계 의도**: 진료 기록은 시간이 지나도 변하지 않아야 하는 **과거의 기록**입니다. 병원 정보가 바뀌더라도 당시의 기록은 보존되어야 하며, 동시에 유효한 병원 데이터와 연결되어야 합니다.
-- **하이브리드 전략 (FK + Snapshot)**:
-  - **무결성(Integrity)**: `Hospital` 엔티티와 **ManyToOne(FK) 관계**를 맺어 참조 무결성을 보장하고, 객체 그래프 탐색을 통해 최신 병원 정보에 접근 가능하도록 설계했습니다.
-  - **이력 보존(History)**: 병원 이름이 변경되더라도 진료 당시의 기록이 왜곡되지 않도록 `hospitalName` 컬럼을 별도로 두어 **스냅샷(Snapshot)** 형태로 저장했습니다.
-
-#### `ProxyRequest` (청구 대행 신청 - Aggregate Root)
-- **역할**: 청구 대행 도메인의 **Aggregate Root**입니다. 하위 엔티티인 `ProxyRequestUnit`의 생명주기를 관리(`CascadeType.ALL`)하며, 대행 단위가 추가될 때마다 총 금액과 수수료를 재계산하는 비즈니스 메서드를 포함합니다.
-- **연관관계**: `User`와 `N:1` 관계를 맺고 있으며, 상태 변경에 대한 최종 권한을 가집니다.
-
-#### `ProxyRequestUnit` (병원별 대행 단위)
-- **설계 의도**: 개별 병원에 대한 신청 내역을 관리합니다. 정규화(Normalization)를 위해 별도의 `hospitalId` 컬럼을 두지 않고, 원본 데이터인 `UserTreatment`를 참조하도록 설계했습니다.
-- **데이터 추적성**: `UserTreatment`와 `ManyToOne` 관계를 맺음으로써, 해당 대행 신청이 "어떤 진료 기록"에 기반했는지 명확히 추적할 수 있으며, 병원 정보는 `unit.getUserTreatment().getHospital()`을 통해 참조합니다.
-
----
-
-## 3. 비즈니스 로직 구현 전략
-
-### 3.1 상태 전이(State Transition) 규칙 구현
-복잡한 상태 변경 규칙(`PENDING` -> `IN_PROGRESS` 등)을 Service 계층의 `if-else` 문으로 처리할 경우 코드가 산재되어 유지보수가 어려워집니다. 이를 해결하기 위해 **Smart Enum** 패턴을 적용했습니다.
-
-- **Smart Enum (`ProxyStatus`)**: 각 상태(Enum)가 자신이 이동 가능한 `allowedNextStates()` 목록을 직접 정의합니다.
-- **검증 위임**: `ProxyRequest` 엔티티는 상태 변경 요청이 오면 `currentStatus.canTransitionTo(nextStatus)`를 호출하여 유효성을 검증합니다.
-
-```java
-// 예시: PENDING 상태는 IN_PROGRESS, CANCELLED 등으로만 이동 가능
-PENDING("대행 신청 완료") {
-    @Override
-    public List<ProxyStatus> allowedNextStates() {
-        return List.of(IN_PROGRESS, CANCELLED, DISCLAIMER);
-    }
-}
+### 실행 명령어
+프로젝트 루트 경로에서 아래 명령어를 실행합니다.
+```bash 
+# Mac/Linux 
+./gradlew bootRun 
+# Windows 
+./gradlew.bat bootRun
 ```
+### 초기 데이터 (Auto Data Init)
 
-### 3.2 DB 매핑과 타입 안전성 (AttributeConverter)
-- **요구사항**: DB에는 운영 및 데이터 확인의 용이성을 위해 한글 Description("대행 신청 완료", "일반 선불")이 저장되어야 합니다.
-- **구현**: `AttributeConverter`를 활용하여 Java 코드에서는 **Enum의 타입 안전성**을 누리고, DB에는 **한글 설명**이 저장되도록 구현했습니다.
+애플리케이션 실행 시 `DataInitializer`가 동작하여 테스트를 위한 초기 데이터를 자동으로 생성합니다.
+
+* **User**: 15명 (테스트 타겟: `userId=1` 채명정)
+* **Hospital**: 10개 (테스트 타겟: `hospitalId=1` 세브란스병원)
+* **UserTreatment**: 30건 이상의 랜덤 진료 기록 및 채명정님의 고정 진료 기록
+
+### 접속 정보
+- **H2 Console**: http://localhost:8080/h2-console
+  - **JDBC URL**: `jdbc:h2:mem:green_ribbon;MODE=MySQL`
+  - **User / Password**: `user` / `user`
+- **Swagger UI**: http://localhost:8080/swagger-ui/index.html
 
 ---
 
-## 4. 시스템 아키텍처 및 공통 모듈 설계 (Common & Core)
+## 2. 엔티티 설계 의도 (ERD)
 
-안정적인 서비스 운영과 프론트엔드와의 원활한 협업을 위해 공통 관심사(Cross-cutting Concerns)를 모듈화했습니다.
+### ERD 구조
+```mermaid
+erDiagram
+    USERS ||--o{ USER_TREATMENT : "1:N"
+    USERS ||--o{ PROXY_REQUEST : "1:N"
+    HOSPITAL ||--o{ USER_TREATMENT : "1:N"
+    
+    PROXY_REQUEST ||--o{ PROXY_REQUEST_UNIT : "1:N (Cascade)"
+    PROXY_REQUEST ||--o{ PROXY_REQUEST_HISTORY : "1:N"
+    
+    USER_TREATMENT ||--o{ PROXY_REQUEST_UNIT : "Referenced"
 
-### 4.1 표준 API 응답 전략 (Standardized API Response)
-HTTP Status Code에 의존하는 것을 넘어, 비즈니스 로직의 성공/실패 여부를 명확히 전달하기 위해 **Soft 200 전략**을 채택했습니다.
-- **구조**: 모든 응답은 `ApiResponse<T>` 래퍼 객체로 반환됩니다.
-- **Status & Code 분리**:
-  - `status` (int): `200`, `9999` 등 구체적인 상태 코드 (프론트엔드 분기 처리용)
-  - `code` (String): `SUCCESS`, `SERVER_ERROR` 등 가독성 있는 식별 코드
-- **이점**: 클라이언트는 항상 JSON 포맷을 보장받으며, `status` 필드만으로 에러 핸들링 로직을 일원화할 수 있습니다.
+    USERS {
+        long user_id PK
+        string name
+    }
+    HOSPITAL {
+        long hospital_id PK
+        string name
+    }
+    USER_TREATMENT {
+        long treatment_id PK
+        string hospital_name "Snapshot"
+        date treatment_date
+        long amount
+    }
+    PROXY_REQUEST {
+        long proxy_id PK
+        string status "Enum (PENDING...)"
+        string guarantee_type "Enum (NORMAL_PREPAID...)"
+        long total_missed_amount
+        long fee_amount
+    }
+    PROXY_REQUEST_UNIT {
+        long unit_id PK
+        long missed_amount "Snapshot"
+    }
+   ```
+### 주요 설계 포인트
 
-### 4.2 전역 예외 처리 (Global Exception Handling)
-`@RestControllerAdvice`를 활용하여 예외를 중앙 집중적으로 관리합니다.
-- **계층화된 예외 전략**:
-  - **Service Layer**: 트랜잭션 롤백을 위해 `RuntimeException` 기반의 커스텀 예외(`BusinessException`)를 발생시킵니다.
-  - **Web Layer**: `Exception.class`까지 포괄적으로 잡아내어, 예상치 못한 Checked Exception이 발생하더라도 클라이언트에게는 항상 약속된 JSON 포맷을 반환합니다.
+1. **ProxyRequest (Aggregate Root)**
+* 청구 대행 신청의 주체입니다. `ProxyRequestUnit`과 `ProxyRequestHistory`의 생명주기를 `Cascade.ALL`과 `orphanRemoval`로 관리하여 데이터 무결성을 보장합니다.
 
-### 4.3 관측 가능성 확보 (Observability & Logging)
-운영 환경에서의 디버깅 효율성을 높이기 위해 로깅 시스템을 강화했습니다.
-- **MDC (Mapped Diagnostic Context)**: 필터 단에서 요청마다 고유한 `UUID(Trace ID)`를 발급하여, 멀티 스레드 환경에서도 로그의 흐름을 완벽하게 추적합니다.
-- **Content Caching**: `ContentCachingRequestWrapper`를 사용하여 `InputStream` 소실 없이 Request/Response Body 전체를 로깅하여 이슈 발생 시 원인을 즉각 파악할 수 있도록 했습니다.
+
+2. **UserTreatment (진료기록 스냅샷)**
+* 병원 정보가 변경되더라도 과거의 진료 사실은 변하지 않아야 하므로, `hospitalName`을 별도 컬럼으로 저장하여 불변성을 확보했습니다.
+
+
+3. **ProxyRequestUnit (N:M 해소 & Snapshot)**
+* 하나의 신청서에 여러 진료 기록이 포함될 수 있는 구조입니다. 신청 시점의 `missedAmount`(누락 금액)를 저장하여 추후 진료비 변동에 영향을 받지 않도록 설계했습니다.
+
+
+
+---
+
+## 3. 비즈니스 로직 배치 이유 (Entity vs Service)
+
+본 프로젝트는 **도메인 주도 설계(DDD)**의 사상을 반영하여, 핵심 비즈니스 로직을 **Entity**에 응집시켰습니다.
+
+### Entity (Rich Domain Model)
+
+데이터 상태를 변경하는 **핵심 판단**은 엔티티가 직접 수행합니다.
+
+* **상태 전이 제어**: `validateCanCancel()`과 같이 상태 변경 가능 여부를 판단하는 로직은 `ProxyRequest` 내부에 구현되어 있습니다.
+* **데이터 캡슐화**: 상태(`status`)나 금액(`feeAmount`) 필드에 대한 무분별한 Setter를 막고, 의도가 명확한 메서드(`addUnit`, `updateStatus`)를 통해서만 데이터를 변경하도록 제한했습니다.
+
+### Service (Application Layer)
+
+서비스 계층은 **비즈니스 흐름을 조율(Orchestration)**하는 역할에 집중했습니다.
+
+* **트랜잭션 관리**: `@Transactional`을 사용하여 작업의 원자성을 보장합니다.
+* **중복 신청 방지**: `validateHospitalAvailability` 메서드를 통해 이미 처리된(COMPLETED, DISCLAIMER) 병원이 포함된 요청을 사전에 차단하는 정책 검증을 수행합니다.
+
+---
+
+## 4. 상태 전이 규칙 구현 방식
+
+복잡한 상태 관리를 `if-else` 분기문이 아닌, **Enum 스스로가 제어**하도록 구현했습니다.
+
+### 4.1 Smart Enum (State Machine)
+
+`ProxyStatus` Enum 내부에 `allowedNextStates`(이동 가능한 다음 상태 목록)를 정의했습니다.
+
+* **검증**: 상태 변경 요청 시 `currentStatus.canTransitionTo(nextStatus)`를 호출하여, 허용되지 않은 경로(예: `PENDING` -> `COMPLETED`)로의 변경을 원천 차단합니다.
+
+### 4.2 자동 상태 전이 (선불 타입 처리)
+
+* **로직**: '선불(Prepaid)' 보장 타입은 수수료 청구 단계 없이 바로 완료되어야 합니다.
+* **구현**: `ProxyRequest.updateStatus` 메서드 내부에서 `GuaranteeType`이 선불이고 변경하려는 상태가 `FEE_CLAIM`인 경우, **자동으로 `COMPLETED`로 상태를 전이**시키고 이력을 남깁니다.
+
+---
+
+## 5. 고민했던 포인트와 해결 방법
+
+### 1) 조회 성능 최적화와 불필요한 로딩 방지 (QueryDSL Projection)
+* **Problem**: 다수의 테이블 조인이 필요한 신청 내역 조회 시, 일반적인 `Fetch Join`은 연관된 엔티티를 모두 영속성 컨텍스트에 올리기 때문에 메모리 효율이 떨어지고 불필요한 컬럼까지 조회하는 문제가 있었습니다.
+* **Solution**: **QueryDSL의 DTO Projection**을 적용했습니다. 엔티티 전체를 조회하지 않고 화면에 필요한 데이터만 `Q-DTO`로 선별적으로 조회(`SELECT`)하여 성능을 최적화했습니다. 또한 `findAvailableTreatments`에서는 `JPAExpressions`를 활용한 서브쿼리로 복잡한 필터링 조건을 깔끔하게 해결했습니다.
+
+### 2) 수수료 정책 관리 (Smart Enum vs Strategy Pattern)
+* **Problem**: 보장 타입별로 상이한 수수료 계산 로직을 구현해야 했습니다. 확장성을 고려하면 **전략 패턴(Interface + Bean)**이 적합해 보였으나, 현재 요구사항인 단순 곱셈 연산을 위해 인터페이스와 여러 구현체 클래스를 만드는 것은 **과도한 엔지니어링(Over-engineering)**이라는 고민이 들었습니다.
+* **Solution**: **Smart Enum** 방식을 채택했습니다. `GuaranteeType` Enum 내부에 데이터(요율)와 행위(계산 메서드)를 함께 응집시켜 코드의 복잡도를 낮추고 유지보수성을 높였습니다. (단, 추후 DB 조회 등 외부 의존성이 필요해질 경우 전략 패턴으로 리팩토링할 계획입니다.)
+
+---
+
+## 6. 테스트 curl
+
+애플리케이션 실행 시 생성되는 **User ID: 1(채명정), Hospital ID: 1(세브란스병원)** 데이터를 기준으로 작성되었습니다.
+
+#### 1. 유저 진료 기록 조회
+
+유저 1이 가진 "신청 가능한" 진료 기록을 조회합니다.
+
+```bash 
+curl -X GET "http://localhost:8080/api/users/1/treatments?page=0&size=20" -H "accept: */*"
+```
+#### 2. 청구 대행 신청
+
+유저 1이 병원 1(세브란스병원)의 진료 기록들에 대해 청구 대행을 신청합니다.
+```bash 
+curl -X POST "http://localhost:8080/api/proxy-requests" -H "Content-Type: application/json" -d "{ \"userId\": 1, \"guaranteeType\": \"NORMAL_POSTPAID\", \"hospitalIds\": [1] }"
+```
+#### 3. 청구 대행 목록 조회
+```bash 
+curl -X GET "http://localhost:8080/api/proxy-requests?userId=1" -H "accept: */*"
+```
+#### 4. 신청 상세 조회
+```bash 
+curl -X GET "http://localhost:8080/api/proxy-requests/1" -H "accept: */*"
+```
+#### 5. 상태 변경 (진행중)
+관리자가 신청 건을 `IN_PROGRESS`(서류 수집 중)로 변경합니다.
+```bash 
+curl -X PATCH "http://localhost:8080/api/proxy-requests/1/status" -H "Content-Type: application/json" -d '{ "status": "IN_PROGRESS" }'
+```
+#### 6. 신청 취소 (실패 테스트)
+`IN_PROGRESS` 상태에서는 취소가 불가능하므로 **400(4203) 에러(CANCEL_RESTRICTED)**가 발생해야 합니다.
+```bash 
+curl -X DELETE "http://localhost:8080/api/proxy-requests/1" -H "accept: */*"
+```

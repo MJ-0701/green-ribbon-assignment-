@@ -1,51 +1,44 @@
 package com.example.greenribboncalimassignment.common.exception;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Builder;
 import lombok.Getter;
 import org.springframework.validation.BindingResult;
 
 import java.util.List;
 
-@Getter
-@Builder
-public class ErrorResponse {
+public record ErrorResponse(
+        String code,
+        String message,
 
-    private String code;
-    private String message;
-    private List<ValidationError> errors; // @Valid 검증 에러 상세
-
-    // 일반 에러 응답
+        @JsonInclude(JsonInclude.Include.NON_EMPTY) // 비어있으면 JSON에서 제외 (깔끔함)
+        List<ValidationError> errors
+) {
+    // 1. 일반 에러 응답 (errors = null)
     public static ErrorResponse of(String code, String message) {
-        return ErrorResponse.builder()
-                .code(code)
-                .message(message)
-                .build();
+        return new ErrorResponse(code, message, null);
     }
 
-    // Validation 에러 응답
+    // 2. Validation 에러 응답 (BindingResult 처리)
     public static ErrorResponse of(String code, String message, BindingResult bindingResult) {
-        return ErrorResponse.builder()
-                .code(code)
-                .message(message)
-                .errors(ValidationError.of(bindingResult))
-                .build();
+        return new ErrorResponse(code, message, ValidationError.of(bindingResult));
     }
 
-    @Getter
-    @Builder
-    public static class ValidationError {
-        private String field;
-        private String value;
-        private String reason;
-
+    // 내부 Inner Record
+    public record ValidationError(
+            String field,
+            String value,
+            String reason
+    ) {
+        // BindingResult -> List<ValidationError> 변환 로직
         public static List<ValidationError> of(BindingResult bindingResult) {
             return bindingResult.getFieldErrors().stream()
-                    .map(error -> ValidationError.builder()
-                            .field(error.getField())
-                            .value(String.valueOf(error.getRejectedValue()))
-                            .reason(error.getDefaultMessage())
-                            .build())
-                    .toList();
+                    .map(error -> new ValidationError(
+                            error.getField(),
+                            String.valueOf(error.getRejectedValue()),
+                            error.getDefaultMessage()
+                    ))
+                    .toList(); // Java 16+
         }
     }
 }
