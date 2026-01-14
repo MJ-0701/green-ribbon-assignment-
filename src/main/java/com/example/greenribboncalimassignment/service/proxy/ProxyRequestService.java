@@ -15,7 +15,9 @@ import com.example.greenribboncalimassignment.domain.user.entity.Users;
 import com.example.greenribboncalimassignment.domain.user.repository.UserTreatmentRepository;
 import com.example.greenribboncalimassignment.domain.user.repository.UsersRepository;
 import com.example.greenribboncalimassignment.web.dto.request.ProxyCreateRequest;
+import com.example.greenribboncalimassignment.web.dto.request.ProxyStatusUpdateRequest;
 import com.example.greenribboncalimassignment.web.dto.response.ProxyCreateResponse;
+import com.example.greenribboncalimassignment.web.dto.response.ProxyDetailResponse;
 import com.example.greenribboncalimassignment.web.dto.response.ProxyRequestUnitResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
@@ -57,9 +59,10 @@ public class ProxyRequestService {
      * 3.1 청구 대행 신청
      * [Process]
      * 1. 유저 유효성 및 신청 정책 검증 (1인 1진행중 원칙)
-     * 2. 병원 ID 목록 기반 진료 기록 조회 및 종결 건 포함 여부 검증
-     * 3. 병원별 금액 합산 및 ProxyRequest/Unit 생성 (병원당 1 Unit)
-     * 4. 신청서 저장 및 초기 상태(PENDING) 이력 저장
+     * 2. 병원 ID 목록 기반 진료 기록 조회 및 종결 건 포함 여부 검증 -> 수정 : 병원 ID 목록 기반 재신청 가능 여부 검증 (종결된 병원 제외)
+     * 3. 진료 기록 조회
+     * 4. 병원별 금액 합산 및 ProxyRequest/Unit 생성 (병원당 1 Unit)
+     * 5. 신청서 저장 및 초기 상태(PENDING) 이력 저장
      */
     @Transactional
     public ProxyCreateResponse createProxyRequest(ProxyCreateRequest request) {
@@ -72,14 +75,14 @@ public class ProxyRequestService {
             throw new BusinessException(ResultCode.DUPLICATE_REQUEST_NOT_ALLOWED);
         }
 
-        // 3. 신청 대상 진료 기록 조회 (병원 ID 목록 기반)
+        // 3. 진료 기록 조회 전에 병원 ID만으로 먼저 체크
+        validateHospitalAvailability(request.userId(), request.hospitalIds());
+
+        // 4. 신청 대상 진료 기록 조회 (병원 ID 목록 기반)
         List<UserTreatment> treatments = userTreatmentRepository.findAllByUserIdAndHospital_IdIn(request.userId(), request.hospitalIds());
         if (treatments.isEmpty()) {
             throw new BusinessException(ResultCode.TREATMENT_NOT_FOUND);
         }
-
-        // 4. 데이터 검증: 이미 종결된 진료 기록 포함 여부 확인
-        validateTreatmentsAvailability(treatments);
 
         // 5. ProxyRequest (Aggregate Root) 생성
         ProxyRequest proxyRequest = ProxyRequest.of(user, request.guaranteeType());
@@ -95,7 +98,7 @@ public class ProxyRequestService {
 
             // 도메인 활용: 병원별 합산 금액을 가진 Unit 생성
             ProxyRequestUnit unit = ProxyRequestUnit.builder()
-                    .userTreatment(hospitalTreatments.get(0)) // 대표 진료기록
+                    .userTreatment(hospitalTreatments.get(0)) // 대표 진료기록 (병원 정보 참조용)
                     .missedAmount(totalHospitalAmount)
                     .build();
 
@@ -116,17 +119,91 @@ public class ProxyRequestService {
         return ProxyCreateResponse.from(savedRequest);
     }
 
-    private void validateTreatmentsAvailability(List<UserTreatment> treatments) {
-        List<Long> treatmentIds = treatments.stream()
-                .map(UserTreatment::getId)
-                .toList();
+    /**
+     * 3.2 청구 대행 상세 조회
+     */
+    public ProxyDetailResponse getProxyRequestDetail(Long proxyRequestId) {
+        ProxyDetailResponse response = proxyRequestRepository.findProxyDetail(proxyRequestId);
 
-        boolean existsProcessed = proxyRequestUnitRepository.existsByUserTreatmentIdInAndProxyRequest_StatusIn(
-                treatmentIds,
-                List.of(ProxyStatus.COMPLETED, ProxyStatus.DISCLAIMER)
+        if (response == null) {
+            throw new BusinessException(ResultCode.PROXY_REQUEST_NOT_FOUND);
+        }
+
+        return response;
+    }
+
+    public List<ProxyDetailResponse.ProxyInfoDto> getProxyRequestList(Long userId) {
+        // 유저 존재 확인 (선택 사항, 필요 시 주석 해제)
+        // if (!usersRepository.existsById(userId)) throw new BusinessException(ResultCode.USER_NOT_FOUND);
+
+        return proxyRequestRepository.findAllByUserId(userId);
+    }
+
+    /**
+     * 3.3 청구 대행 상태 변경
+     */
+    @Transactional
+    public void updateProxyRequestStatus(Long proxyRequestId, ProxyStatusUpdateRequest request) {
+        // 1. 조회
+        ProxyRequest proxyRequest = proxyRequestRepository.findById(proxyRequestId)
+                .orElseThrow(() -> new BusinessException(ResultCode.PROXY_REQUEST_NOT_FOUND));
+
+        ProxyStatus previousStatus = proxyRequest.getStatus();
+        ProxyStatus requestedStatus = request.status();
+
+        // 2. 상태 변경 (도메인 엔티티 로직 호출)
+        try {
+            proxyRequest.updateStatus(requestedStatus);
+        } catch (BusinessException e) {
+            // 엔티티에서 던진 예외를 그대로 전파
+            throw e;
+        }
+
+        // 3. 변경된 최종 상태 확인
+        ProxyStatus actualFinalStatus = proxyRequest.getStatus();
+
+        // 4. 이력 저장
+        String historyReason = request.reason();
+
+        // 선불 자동 완료 케이스에 대한 사유 자동 기입 (선택)
+        if (requestedStatus == ProxyStatus.FEE_CLAIM && actualFinalStatus == ProxyStatus.COMPLETED) {
+            historyReason = "선불 건 수수료 안내 요청에 의한 자동 결제 완료 처리";
+        }
+
+        saveHistory(
+                proxyRequest,
+                previousStatus,
+                actualFinalStatus,
+                historyReason != null ? historyReason : "상태 변경 API 호출"
         );
+    }
 
-        if (existsProcessed) {
+    /**
+     * 3.4 청구 대행 취소
+     * - Soft Delete 수행
+     */
+    @Transactional
+    public void deleteProxyRequest(Long proxyRequestId) {
+        ProxyRequest proxyRequest = proxyRequestRepository.findById(proxyRequestId)
+                .orElseThrow(() -> new BusinessException(ResultCode.PROXY_REQUEST_NOT_FOUND));
+
+        // 도메인 엔티티의 삭제 로직 호출 (상태 검증 포함)
+        proxyRequest.delete();
+
+        saveHistory(
+                proxyRequest,
+                proxyRequest.getStatus(),
+                ProxyStatus.CANCELLED,
+                ProxyStatus.CANCELLED.getDescription()
+        );
+    }
+
+
+    // 수정 -> 종결(COMPLETED) 또는 면책(DISCLAIMER)된 병원은 다시 신청 불가능
+    private void validateHospitalAvailability(Long userId, List<Long> hospitalIds) {
+        boolean isBlocked = proxyRequestUnitRepository.existsProcessedHospital(userId, hospitalIds);
+
+        if (isBlocked) {
             throw new BusinessException(ResultCode.ALREADY_PROCESSED_TREATMENT);
         }
     }
