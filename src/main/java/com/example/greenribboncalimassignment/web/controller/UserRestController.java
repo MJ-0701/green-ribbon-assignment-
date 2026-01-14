@@ -1,6 +1,7 @@
 package com.example.greenribboncalimassignment.web.controller;
 
 import com.example.greenribboncalimassignment.common.response.ApiResponse;
+import com.example.greenribboncalimassignment.common.response.SliceResponse;
 import com.example.greenribboncalimassignment.service.proxy.ProxyRequestService;
 import com.example.greenribboncalimassignment.web.dto.response.ProxyRequestUnitResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -27,7 +28,7 @@ public class UserRestController {
 
     @Operation(summary = "3.5 유저 진료 기록 조회", description = "대행 신청이 가능한 유저의 진료 기록 목록을 조회합니다. (이미 신청된 건은 제외됨)")
     @GetMapping("/{userId}/treatments")
-    public ResponseEntity<ApiResponse<Slice<ProxyRequestUnitResponse>>> getUserTreatments(
+    public ResponseEntity<ApiResponse<SliceResponse<ProxyRequestUnitResponse>>> getUserTreatments(
             @Parameter(description = "유저 ID", example = "1")
             @PathVariable Long userId,
 
@@ -35,7 +36,7 @@ public class UserRestController {
             @PageableDefault(size = 20, sort = "treatmentDate", direction = Sort.Direction.DESC)
             Pageable pageable
     ) {
-        Slice<ProxyRequestUnitResponse> treatments = proxyRequestService.getAvailableTreatments(userId, pageable);
-        return ResponseEntity.ok(ApiResponse.success(treatments));
+
+        return ResponseEntity.ok(ApiResponse.success(proxyRequestService.getAvailableTreatments(userId, pageable)));
     }
 }
